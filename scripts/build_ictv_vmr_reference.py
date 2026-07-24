@@ -19,6 +19,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass
+from http.client import IncompleteRead
 from pathlib import Path
 from typing import Iterable
 from urllib.error import HTTPError, URLError
@@ -182,7 +183,7 @@ def fetch_batch(accessions: list[str], *, email: str, delay: float) -> str:
                 raise RuntimeError(payload[:500])
             time.sleep(delay)
             return payload
-        except (HTTPError, URLError, TimeoutError, RuntimeError) as error:
+        except (HTTPError, URLError, TimeoutError, IncompleteRead, RuntimeError) as error:
             if attempt == 4:
                 raise RuntimeError(f"NCBI EFetch failed for batch beginning {accessions[0]}: {error}") from error
             time.sleep(max(delay, 1.0) * (2 ** attempt))
