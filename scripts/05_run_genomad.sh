@@ -20,7 +20,7 @@ positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL )) || die 2 
 [[ -d $DATABASE ]] || die 3 "geNomad database is missing or not a directory: $DATABASE"
 require_command genomad
 OUT="$OUTPUT_DIR/02_genomad"; CANDIDATES="$OUT/viral_candidates_genomad.fna"
-if [[ -s $CANDIDATES ]]; then
+if [[ -f $CANDIDATES ]]; then
   (( RESUME )) && { echo "[INFO] geNomad viral candidates already exist; skipped"; exit 0; }
   die 4 "geNomad output already exists; use --resume or choose a new report output directory"
 fi
@@ -30,8 +30,14 @@ mkdir -p "$OUT"
 # remains bounded by run_viral_report.sh and the central configuration.
 genomad end-to-end --cleanup --splits "$THREADS" "$INPUT" "$OUT/run" "$DATABASE" >"$OUT/genomad.stdout.log" 2>"$OUT/genomad.stderr.log"
 VIRUS_FASTA=$(find "$OUT/run" -type f -name '*_virus.fna' -print -quit)
-[[ -n $VIRUS_FASTA && -s $VIRUS_FASTA ]] || die 1 "geNomad finished without a virus FASTA; inspect: $OUT/genomad.stderr.log"
-cp -- "$VIRUS_FASTA" "$CANDIDATES"
+if [[ -n $VIRUS_FASTA && -s $VIRUS_FASTA ]]; then
+  cp -- "$VIRUS_FASTA" "$CANDIDATES"
+else
+  # A zero-hit call is valid in a multi-tool discovery workflow.  Persist an
+  # empty marker so resume is deterministic, but do not abort the whole run.
+  : > "$CANDIDATES"
+  echo "[WARN] geNomad found no viral candidate FASTA; continuing with the other discovery methods" >&2
+fi
 SUMMARY=$(find "$OUT/run" -type f -name '*_virus_summary.tsv' -print -quit || true)
 [[ -z $SUMMARY ]] || cp -- "$SUMMARY" "$OUT/virus_summary.tsv"
 echo "[INFO] geNomad candidates: $CANDIDATES"

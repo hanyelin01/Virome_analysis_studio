@@ -11,13 +11,13 @@ Usage: 10_run_diamond_taxonomy.sh --input FASTA --output-dir PATH --threads N
 EOF
 }
 
-INPUT='' OUTPUT_DIR='' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" RESUME=0
+INPUT='' OUTPUT_DIR='' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" STAGE_DIR='02_diamond_nr_taxonomy' RESUME=0
 while (($#)); do
   case "$1" in
-    --input|--output-dir|--threads|--taxon-scope|--taxonlist|--max-target-seqs)
+    --input|--output-dir|--threads|--taxon-scope|--taxonlist|--max-target-seqs|--stage-dir)
       (($# >= 2)) || die 2 "Missing value for $1"
       case "$1" in
-        --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;;
+        --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;; --stage-dir) STAGE_DIR=$2;;
       esac
       shift 2;;
     --resume) RESUME=1; shift;;
@@ -28,6 +28,7 @@ done
 [[ -s $INPUT && -n $OUTPUT_DIR && -n $THREADS ]] || die 2 'Input FASTA, output directory and threads are required'
 [[ $TAXON_SCOPE == virus || $TAXON_SCOPE == none || $TAXON_SCOPE == custom ]] || die 2 'Invalid --taxon-scope'
 positive_int "$THREADS" && positive_int "$MAX_TARGETS" || die 2 'Threads and max-target-seqs must be positive integers'
+[[ $STAGE_DIR =~ ^[A-Za-z0-9._-]+$ ]] || die 2 '--stage-dir must be a simple directory name'
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'DIAMOND thread request exceeds configured limits'
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 [[ -n $TAXONKIT_DB && -d $TAXONKIT_DB ]] || die 3 'TAXONKIT_DB is missing or not a directory'
@@ -39,7 +40,7 @@ case "$TAXON_SCOPE" in
 esac
 [[ -z $TAXONLIST ]] || valid_taxonlist "$TAXONLIST" || die 2 'Taxon list must contain positive NCBI TaxIDs separated by commas'
 
-OUT="$OUTPUT_DIR/02_diamond_nr_taxonomy"; HITS="$OUT/nr_virus_hits.outfmt6.tsv"; TAXIDS="$OUT/query_taxids.tsv"; LCA="$OUT/query_lca.tsv"; LINEAGE="$OUT/query_lca_lineage.tsv"; SUMMARY="$OUT/contig_taxonomy_lca.tsv"
+OUT="$OUTPUT_DIR/$STAGE_DIR"; HITS="$OUT/nr_virus_hits.outfmt6.tsv"; TAXIDS="$OUT/query_taxids.tsv"; LCA="$OUT/query_lca.tsv"; LINEAGE="$OUT/query_lca_lineage.tsv"; SUMMARY="$OUT/contig_taxonomy_lca.tsv"
 if [[ -s $SUMMARY ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND/TaxonKit annotation already exists; skipped"; exit 0; }
   die 4 "DIAMOND/TaxonKit output already exists; use --resume or choose another output directory"

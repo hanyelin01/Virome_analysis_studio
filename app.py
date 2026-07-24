@@ -14,6 +14,7 @@ import streamlit.components.v1 as components
 PIPELINE_HOME = Path(__file__).resolve().parent
 PIPELINE_SCRIPT = PIPELINE_HOME / "scripts" / "run_pipeline.sh"
 VIRAL_REPORT_SCRIPT = PIPELINE_HOME / "scripts" / "run_viral_report.sh"
+VIROME_CATALOGUE_SCRIPT = PIPELINE_HOME / "scripts" / "run_virome_catalogue.sh"
 FINE_ANNOTATION_SCRIPT = PIPELINE_HOME / "scripts" / "run_fine_annotation.sh"
 CONFIG_FILE = PIPELINE_HOME / "config" / "pipeline.env"
 
@@ -176,7 +177,9 @@ def show_report_center(report_root: Path | None) -> None:
     """Embed the self-contained offline dashboard without exposing a file URL."""
     if report_root is None:
         return
-    dashboard = report_root / "reports" / "virome_dashboard.html"
+    dashboard = report_root / "reports" / "virome_catalogue_dashboard.html"
+    if not dashboard.is_file():
+        dashboard = report_root / "reports" / "virome_dashboard.html"
     if not dashboard.is_file():
         st.info("报告完成后，这里将显示“批次总览”和可切换的单样本判读页面。")
         return
@@ -227,7 +230,7 @@ st.markdown(
 )
 st.markdown("""<div class='hero'><h2>🧬 Virome Contig Studio</h2><p>从原始测序数据到病毒多样性解读与 DIAMOND 精细注释的中文科研工作台。</p></div>""", unsafe_allow_html=True)
 
-if not all(script.is_file() for script in [PIPELINE_SCRIPT, VIRAL_REPORT_SCRIPT, FINE_ANNOTATION_SCRIPT]):
+if not all(script.is_file() for script in [PIPELINE_SCRIPT, VIRAL_REPORT_SCRIPT, VIROME_CATALOGUE_SCRIPT, FINE_ANNOTATION_SCRIPT]):
     st.error("未找到必需脚本。请重新同步完整的 contig_pipeline 软件目录。")
     st.stop()
 if not ALLOWED_ROOTS:
@@ -237,8 +240,8 @@ TASKS = {
     "① 原始数据质控": "qc_only",
     "② MEGAHIT 拼接": "assembly_only",
     "③ 完整拼接流程": "full",
-    "④ 逐样本病毒报告与批次总览": "viral_report",
-    "⑤ DIAMOND 精细注释": "fine_annotation",
+    "④ 全局病毒发现、分类与精细注释": "virome_catalogue",
+    "⑤ 独立 DIAMOND 精细注释（旧结果/自定义）": "fine_annotation",
 }
 with st.sidebar:
     st.markdown("## 工作流导航")
@@ -253,7 +256,7 @@ task_copy = {
     "qc_only": "将双端 rawdata 进行 fastp 质控，生成标准化 cleandata。",
     "assembly_only": "从已有 cleandata 启动 PE 或 SE MEGAHIT 拼接。",
     "full": "顺序执行 fastp 质控、MEGAHIT 拼接与 contig 检查。",
-    "viral_report": "为每个样本独立生成病毒解读报告，并自动建立可点击的批次病毒检出总览。",
+    "virome_catalogue": "以 geNomad、VirSorter2 和 DIAMOND-NR-virus 建立全局潜在病毒序列池；随后进行完整 NR 分类、全局 CheckV、ICTV 精细注释、样本分发与 reads 定量。",
     "fine_annotation": "对 CheckV 默认候选或自定义候选 contigs，追加 NR DIAMOND、MEGAN RMA6 和 TaxonKit LCA 注释。",
 }
 st.markdown(f"<div class='task-note'>{task_copy[task]}</div>", unsafe_allow_html=True)
@@ -333,59 +336,38 @@ try:
         state_base = assembly if assembly else clean
         adapter_evidence_root = clean if needs_raw else None
 
-    elif task == "viral_report":
+    elif task == "virome_catalogue":
         with st.container(border=True):
-            st.subheader("已有流程结果")
+            st.subheader("输入：已有 cleandata 与 assembly")
             assembly_text = st.text_input("assembly 路径", placeholder="/data/project/assembly")
             clean_text = st.text_input("cleandata 路径", placeholder="/data/project/cleandata")
             clean_layout = layout_labels[st.radio("clean reads 存放方式", list(layout_labels), horizontal=True)]
             read_type = {"双端 PE": "pe", "单端 SE": "se"}[st.radio("测序类型", ["双端 PE", "单端 SE"], horizontal=True)]
         with st.container(border=True):
-            st.subheader("报告输出与批次总览")
-            output_text = st.text_input("viral_report 输出路径", placeholder="/data/project/viral_report")
-            overview_rank = {"病毒科（推荐）": "family", "病毒属": "genus", "病毒种（仅适合高可信注释）": "species"}[st.radio("批次总览默认分类层级", ["病毒科（推荐）", "病毒属", "病毒种（仅适合高可信注释）"], horizontal=True)]
-            st.caption("每个样本独立进行候选去冗余、reads 回贴和出报告；批次页面仅汇总“哪些分类单元出现在哪些样本”，不进行跨样本生态统计。")
+            st.subheader("输出：全局病毒目录报告")
+            output_text = st.text_input("virome_catalogue 输出路径", placeholder="/data/project/virome_catalogue")
+            st.caption("先建立全局完全去冗余 VC 序列目录，再生成 CheckV 修正后的 VF 病毒片段；VC/VF 不是 vOTU，也不直接等同于病毒物种。")
         c1, c2 = st.columns(2)
         with c1: threads = st.number_input("病毒分析线程数", 1, MAX_VIRAL_THREADS, min(8, MAX_VIRAL_THREADS))
-        with c2: viral_min = st.number_input("geNomad 输入最短 contig 长度", 200, 100000, max(200, int(SETTINGS.get("VIRAL_MIN_CONTIG_LEN", "1000"))))
-        unified_minimum = st.checkbox(
-            "CheckV后报告与vOTU沿用同一长度阈值",
-            value=True,
-            help="推荐保持勾选。取消后可为CheckV输出单独设置更严格的长度下限。",
-        )
-        post_checkv_min = st.number_input(
-            "CheckV后报告/vOTU最短病毒片段长度",
-            200,
-            100000,
-            int(viral_min) if unified_minimum else max(
-                200, int(SETTINGS.get("VOTU_POST_CHECKV_MIN_LEN", "1000"))
-            ),
-            disabled=unified_minimum,
-        )
-        if unified_minimum:
-            post_checkv_min = viral_min
-        st.caption(
-            f"本次有效阈值：geNomad输入 ≥ {viral_min} bp；"
-            f"CheckV后进入报告/vOTU ≥ {post_checkv_min} bp。"
-        )
-        with st.expander("查看本次其余有效病毒分析参数"):
+        with c2: viral_min = st.number_input("进入三工具发现的最短 contig 长度", 200, 100000, max(200, int(SETTINGS.get("VIRAL_MIN_CONTIG_LEN", "1000"))))
+        with st.expander("查看 v2 分析结构与有效参数"):
             st.dataframe([
-                {"参数": "vOTU ANI (%)", "值": SETTINGS.get("VOTU_ANI", "95"), "来源": "pipeline.env"},
-                {"参数": "vOTU aligned fraction (%)", "值": SETTINGS.get("VOTU_ALIGNED_FRACTION", "85"), "来源": "pipeline.env"},
+                {"阶段": "发现", "参数": "geNomad + VirSorter2 + DIAMOND-NR-virus", "值": "均启用", "来源": "v2 固定流程"},
+                {"阶段": "分类", "参数": "DIAMOND", "值": "完整 NR（无 TaxID 限制）", "来源": "v2 固定流程"},
+                {"阶段": "质量", "参数": "CheckV", "值": "全局候选目录运行一次", "来源": "v2 固定流程"},
+                {"阶段": "精细注释", "参数": "ICTV 本地参考库", "值": SETTINGS.get("ICTV_REFERENCE_VERSION", "未配置"), "来源": "pipeline.env"},
                 {"参数": "CoverM read identity (%)", "值": SETTINGS.get("COVERM_MIN_READ_PERCENT_IDENTITY", "95"), "来源": "pipeline.env"},
                 {"参数": "CoverM read aligned (%)", "值": SETTINGS.get("COVERM_MIN_READ_ALIGNED_PERCENT", "75"), "来源": "pipeline.env"},
                 {"参数": "CoverM covered fraction (%)", "值": SETTINGS.get("COVERM_MIN_COVERED_FRACTION", "10"), "来源": "pipeline.env"},
-                {"参数": "重要性相对丰度 (%)", "值": SETTINGS.get("VOTU_IMPORTANCE_RELATIVE_ABUNDANCE", "5"), "来源": "pipeline.env"},
-                {"参数": "批次默认分类层级", "值": overview_rank, "来源": "当前页面"},
             ], use_container_width=True, hide_index=True)
-        enable_vs2 = st.checkbox("启用 VirSorter2 交叉验证（可选，耗时更高）")
-        if not SETTINGS.get("GENOMAD_DB") or not SETTINGS.get("CHECKV_DB"):
-            st.warning("GENOMAD_DB 或 CHECKV_DB 尚未配置；提交前请先完成 config/pipeline.env 设置。")
+        required_v2 = ["GENOMAD_DB", "CHECKV_DB", "DIAMOND_NR_DB", "TAXONKIT_DB", "MEGAN_DAA2RMA", "MEGAN_MAP_DB", "ICTV_REFERENCE_DMND", "ICTV_REFERENCE_METADATA"]
+        missing_v2 = [key for key in required_v2 if not SETTINGS.get(key)]
+        if missing_v2:
+            st.warning("v2 尚未配置：" + "、".join(missing_v2) + "。请完成 config/pipeline.env 后再提交。")
         assembly = validate_path(assembly_text, "assembly 路径", exists=True)
         clean = validate_path(clean_text, "cleandata 路径", exists=True)
-        output = validate_path(output_text, "viral_report 输出路径", exists=False)
-        command = [str(VIRAL_REPORT_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--min-contig-length", str(viral_min), "--post-checkv-min-length", str(post_checkv_min), "--overview-rank", overview_rank]
-        if enable_vs2: command.append("--enable-virsorter2")
+        output = validate_path(output_text, "virome_catalogue 输出路径", exists=False)
+        command = [str(VIROME_CATALOGUE_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--min-contig-length", str(viral_min)]
         state_base = output
 
     else:
@@ -448,5 +430,5 @@ except ValueError as error:
 
 show_status(state_base)
 show_adapter_evidence(adapter_evidence_root)
-if task == "viral_report":
+if task == "virome_catalogue":
     show_report_center(state_base)

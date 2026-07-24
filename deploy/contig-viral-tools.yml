@@ -14,7 +14,6 @@ dependencies:
   - samtools
   - diamond
   - taxonkit
-# VirSorter2 is deliberately omitted from the default environment because it
-# is optional and needs an additional database setup.  Install it only when
-# the UI's cross-validation option will be used:
+# v2 requires VirSorter2 as a peer discovery method.  It remains a separate
+# installation because its database setup is managed by VirSorter2 itself:
 #   mamba install -n contig-ui -c conda-forge -c bioconda virsorter=2

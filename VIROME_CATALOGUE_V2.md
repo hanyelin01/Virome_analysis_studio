@@ -1,0 +1,74 @@
+# 全局病毒目录流程（v2）
+
+`virome_catalogue v2` 从已有 `cleandata` 和 `assembly/<sample>/final.contigs.fa` 开始。它取代网页中的旧“逐样本 vOTU 病毒报告”入口，但不会删除旧报告或旧脚本。
+
+```text
+cleandata + assembly
+  → geNomad + VirSorter2 + DIAMOND-NR-virus
+  → 全局 VC 完全去冗余候选目录
+  → 完整 NR / TaxonKit LCA / DAA / RMA6
+  → 全局 CheckV
+  → 本地 ICTV 参考库精细注释
+  → 按原始来源分发到样本 + CoverM 回贴
+  → 离线 HTML 报告
+```
+
+## 输出对象和目录
+
+```text
+01_prepared_contigs/       输入 contig 与样本溯源
+02_genomad/                geNomad 原始调用
+02b_virsorter2/            VirSorter2 原始调用
+02c_diamond_virus/         NR 病毒子集 DIAMOND 原始命中
+03_candidate_catalogue/    VC 目录、调用证据与来源关系
+04_nr_annotation/          完整 NR、TaxonKit LCA 和病毒证据判定
+05_checkv/                 全局 CheckV 结果
+06_ictv_refinement/        本地 ICTV 参考库命中
+07_final_catalogue/        VF 目录
+08_sample_results/         VF 回分发到原始样本
+09_abundance/              各样本的 CoverM 回贴
+reports/                   virome_catalogue_dashboard.html
+```
+
+- `VC_...` 是一条完全去冗余的候选核酸序列。
+- `VF_...` 是 CheckV 修正后的最终病毒片段；前噬菌体可产生一个 VC 的子片段。
+- VC/VF 都不是 vOTU、病毒物种或病毒株。`VC_source_mapping.tsv`、`VF_catalogue.tsv` 和 `sample_fragment_presence.tsv` 保留回溯关系。
+
+## 证据判定
+
+三工具只负责建立“潜在病毒序列池”。完整 NR 分类后，VC 被标记为：
+
+| 结论 | 处理 |
+|---|---|
+| `confirmed_viral` | NR 存在病毒支持；进入 CheckV 和 ICTV。 |
+| `putative_novel_virus` | 至少两种发现方法支持，但 NR 没有可靠命中；仍进入 CheckV。 |
+| `ambiguous` | 病毒发现与全 NR 非病毒证据冲突；保留审计表。 |
+| `nonviral_or_insufficient` | 不进入最终病毒目录。 |
+
+TaxonKit LCA 和 ICTV 相似性均是序列证据，不构成临床诊断。
+
+## ICTV 本地库维护
+
+ICTV VMR 的 accession、下载的蛋白 FASTA 和审核后的元数据 TSV 必须一起冻结。元数据至少包含：
+
+```text
+reference_id  family  genus  species  baltimore_group
+```
+
+构建本地 DIAMOND 库：
+
+```bash
+bash scripts/build_ictv_reference_db.sh \
+  --metadata /data/ictv/VMR_MSL41.reviewed.tsv \
+  --protein-fasta /data/ictv/VMR_MSL41.proteins.faa \
+  --output-dir /data/ictv/VMR_MSL41 \
+  --version VMR_MSL41.v1.20260721
+```
+
+将命令输出的 `ICTV_REFERENCE_DMND`、`ICTV_REFERENCE_METADATA` 与 `ICTV_REFERENCE_VERSION` 写入 `config/pipeline.env`。构建器记录蛋白与元数据 SHA-256；更新时创建新目录和新版本，绝不覆盖已用于分析的参考库。
+
+在提交 v2 前，`pipeline.env` 至少还要配置 `GENOMAD_DB`、`CHECKV_DB`、`DIAMOND_NR_DB`、`TAXONKIT_DB`、`MEGAN_DAA2RMA`、`MEGAN_MAP_DB`；运行账号的 `PATH` 必须有 `genomad`、`virsorter`、`checkv`、`diamond`、`taxonkit` 和 `coverm`。
+
+## 恢复规则
+
+首次运行创建 `.contig_pipeline/virome_catalogue_contract.env`。只有输入、数据库和结果参数一致时 `--resume` 才会跳过完整步骤；改变 ICTV、NR、输入目录或阈值时请使用新的输出目录。

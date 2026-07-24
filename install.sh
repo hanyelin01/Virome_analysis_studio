@@ -34,7 +34,7 @@ fi
 # servers. The requirements pin known compatible manylinux wheels.
 "$ROOT/.venv/bin/python" -m pip install --only-binary=:all: -r "$ROOT/requirements.txt"
 chmod +x "$ROOT/install.sh" "$ROOT/scripts/"*.sh
-for tool in fastp megahit find realpath flock genomad checkv coverm vclust minimap2 samtools diamond taxonkit; do
+for tool in fastp megahit find realpath flock genomad virsorter checkv coverm vclust minimap2 samtools diamond taxonkit; do
   command -v "$tool" >/dev/null 2>&1 || echo "WARNING: $tool is not currently in PATH. The pipeline will not run until it is available."
 done
 echo "Installed. Edit $ROOT/config/pipeline.env, then start:"

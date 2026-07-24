@@ -7,7 +7,7 @@
 - `rawdata → cleandata`：双端 PE fastp；支持“样本子文件夹”或“平铺 FASTQ”。
 - `cleandata → contigs`：PE/SE MEGAHIT；支持“样本子文件夹”或“平铺 FASTQ”。
 - `rawdata → cleandata → contigs`：PE 完整流程；fastp 的标准输出会自动交给 MEGAHIT。
-- `contigs + cleandata → 病毒多样性报告`：geNomad 病毒识别、CheckV 质量评估、CoverM vOTU 去冗余与 reads 回帖、中文 HTML 报告；VirSorter2 可选交叉验证。
+- `contigs + cleandata → 全局病毒目录报告（v2）`：geNomad、VirSorter2、DIAMOND-NR-virus 三工具发现；完全去冗余 VC 目录；完整 NR/TaxonKit 分类、DAA/RMA6、全局 CheckV、ICTV 本地库精细注释、样本分发与 CoverM 回贴。详见 [VIROME_CATALOGUE_V2.md](VIROME_CATALOGUE_V2.md)。
 - `DIAMOND 精细注释`：使用已有 `viral_report` 中 CheckV 筛选的候选 contigs，或用户提供的单个/多个 FASTA；支持完整 NR 库的病毒 TaxID 10239 过滤、无分类过滤或自定义 TaxID，并可生成 DAA、MEGAN RMA6、DIAMOND outfmt 6 和 TaxonKit LCA 注释表。
 
 fastp 去接头默认使用双端重叠与 PE 自动识别；网页也可在实验记录明确时选择版本化的建库接头方案。每个样本会保存 fastp 报告、识别序列、目录匹配、来源等级和接头目录哈希。接头目录的审核、维护和回退规则见 [ADAPTER_CATALOG_MAINTENANCE.md](ADAPTER_CATALOG_MAINTENANCE.md)。
@@ -27,7 +27,7 @@ PYTHON_BIN=python bash install.sh
 ALLOWED_DATA_ROOTS=/srv/contig_projects:/home/hanyl/Projects
 ```
 
-运行网页服务的 Linux 账号还需要在 `PATH` 中有：`fastp`、`megahit`、`bash`、`find`、`realpath` 和 `flock`。如需使用病毒报告模块，还需要 `genomad`、`checkv`、`coverm`、`skani`、`minimap2`、`samtools`，并配置 geNomad 与 CheckV 数据库。精细注释还需要 `diamond`、`taxonkit`，并按需配置 MEGAN。详见 [VIRAL_REPORT_DEPLOYMENT.md](VIRAL_REPORT_DEPLOYMENT.md) 和 [UPGRADE_FINE_ANNOTATION.md](UPGRADE_FINE_ANNOTATION.md)。
+运行网页服务的 Linux 账号还需要在 `PATH` 中有：`fastp`、`megahit`、`bash`、`find`、`realpath` 和 `flock`。全局病毒目录模块还需要 `genomad`、`virsorter`、`checkv`、`coverm`、`diamond`、`taxonkit`，并配置 geNomad、CheckV、完整 NR、MEGAN 和本地 ICTV 参考库。
 
 启动服务：
 
@@ -78,7 +78,7 @@ assembly/<sample>/final.contigs.fa
 
 网页提交后，pipeline 在 Linux 后台运行；刷新或重新打开浏览器不会中止它。页面会从 `.contig_pipeline/runs/` 读取当前输出位置最近一次任务的持久化状态和末尾日志；点击“刷新任务状态”即可更新显示。
 
-病毒报告的assembly输入严格受本次样本manifest限制；`--resume`会核对准备阶段的样本、输入文件元数据和参数指纹，不会复用其他批次的旧结果。历史报告目录迁移说明见 [UPGRADE_MANIFEST_SCOPE_FIX.md](UPGRADE_MANIFEST_SCOPE_FIX.md)。
+全局病毒目录流程的 assembly 输入严格受本次样本 manifest 限制；`--resume` 会核对输入、数据库和结果参数契约，不会复用其他批次或其他参考库的结果。历史旧版报告目录迁移说明见 [UPGRADE_MANIFEST_SCOPE_FIX.md](UPGRADE_MANIFEST_SCOPE_FIX.md)。
 
 ## 识别规则与限制
 
@@ -88,22 +88,22 @@ SE 每个样本必须恰有一个 `.fq.gz` 或 `.fastq.gz` 文件。rawdata 质�
 
 网页服务只调用固定总控脚本，不提供任意 Shell 命令；路径会被限制在 `ALLOWED_DATA_ROOTS`。
 
-## 病毒多样性报告输出
+## 全局病毒目录报告输出（v2）
 
-报告任务的输入是已经完成的 `assembly/<sample>/final.contigs.fa` 以及对应样本的 clean reads。结果写入用户选择的 `viral_report/` 目录：
+报告任务的输入是已经完成的 `assembly/<sample>/final.contigs.fa` 以及对应样本的 clean reads。结果写入用户选择的 `virome_catalogue/` 目录：
 
 ```text
-viral_report/
+virome_catalogue/
 ├── 01_prepared_contigs/      # 统一且可追溯的 contig 标识
-├── 02_genomad/               # 病毒候选与分类结果
-├── 03_checkv/                # 质量、完整度与前噬菌体处理结果
-├── 04_votu_abundance/        # vOTU 聚类、代表序列与 CoverM 回帖结果
-├── reports/
-│   ├── viral_diversity_report.html
-│   ├── votu_metadata.tsv
-│   ├── votu_relative_abundance.tsv
-│   └── alpha_diversity.tsv
+├── 03_candidate_catalogue/   # 三工具证据与全局 VC 完全去冗余目录
+├── 04_nr_annotation/         # 完整 NR、TaxonKit LCA、DAA/RMA6 与判定
+├── 05_checkv/                # 全局质量、完整度与前噬菌体处理
+├── 06_ictv_refinement/       # 本地 ICTV 参考库精细比对
+├── 07_final_catalogue/       # 最终 VF 病毒片段与来源关系
+├── 08_sample_results/        # VF 回分发到原始样本
+├── 09_abundance/             # CoverM reads 回贴
+├── reports/virome_catalogue_dashboard.html
 └── .contig_pipeline/runs/     # 可恢复的任务日志和参数快照
 ```
 
-HTML 报告包含 CheckV 质量组成、主要分类单元、Shannon 指数、Bray–Curtis PCoA、vOTU 丰度热图和可下载结果表。默认使用 95% ANI、85% aligned fraction 定义 vOTU，并在报告中保留未分类病毒；这些阈值可由 `config/pipeline.env` 统一管理。
+HTML 报告首先呈现三工具发现交集（UpSet 风格）、NR 证据判定、分类层级、巴尔的摩分类、CheckV 与 ICTV 精细注释证据，以及最终片段回分发到样本的结果。VC/VF 不是 vOTU 或病毒物种。

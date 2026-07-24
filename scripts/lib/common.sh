@@ -26,6 +26,8 @@ load_pipeline_config() {
   : "${PRIORITY_REVIEW_TAXA_REFERENCE:=$PIPELINE_HOME/config/priority_review_taxa.tsv}"
   : "${DIAMOND_NR_DB:=}"; : "${DIAMOND_DEFAULT_TAXONLIST:=10239}"; : "${DIAMOND_EVALUE:=1e-5}"
   : "${DIAMOND_NR_MAX_TARGET_SEQS:=25}"; : "${DIAMOND_SENSITIVITY:=more-sensitive}"
+  : "${ICTV_REFERENCE_DMND:=}"; : "${ICTV_REFERENCE_METADATA:=}"; : "${ICTV_REFERENCE_VERSION:=unconfigured}"
+  : "${ICTV_REFERENCE_MAX_TARGET_SEQS:=25}"
   : "${MEGAN_DAA2RMA:=}"; : "${MEGAN_MAP_DB:=}"; : "${TAXONKIT_DB:=}"
   : "${VIRSORTER_COMMAND:=virsorter}"; : "${VIRSORTER_USE_CONDA_OFF:=0}"
 }

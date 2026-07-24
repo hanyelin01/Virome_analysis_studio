@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import csv
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def write(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def table(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def run(script: str, *args: str) -> None:
+    subprocess.run([sys.executable, str(ROOT / "scripts/helpers" / script), *args], check=True)
+
+
+def test_global_catalogue_and_final_fragment_distribution(tmp_path: Path) -> None:
+    prepared = write(tmp_path / "prepared.fna", ">S1__a\nACGTACGT\n>S2__b\nTTTTCCCC\n")
+    provenance = write(tmp_path / "provenance.tsv", "sequence_id\tsample_id\toriginal_contig_id\tlength\nS1__a\tS1\ta\t8\nS2__b\tS2\tb\t8\n")
+    genomad = write(tmp_path / "genomad.fna", ">S1__a\nACGTACGT\n")
+    virsorter = write(tmp_path / "virsorter.fna", ">S1__a||full\nACGTACGT\n")
+    virus_hits = write(tmp_path / "virus_hits.tsv", "qseqid\tqlen\tqstart\tqend\tpident\tlength\tevalue\tbitscore\tsseqid\tstaxids\tsscinames\tslineages\nS2__b\t8\t1\t8\t99\t8\t1e-20\t80\tx\t10239\tvirus\tViruses\n")
+    catalogue = tmp_path / "catalogue"
+    run("build_virus_candidate_catalogue.py", "--input-fasta", str(prepared), "--provenance", str(provenance), "--genomad-fasta", str(genomad), "--virsorter-fasta", str(virsorter), "--diamond-virus-hits", str(virus_hits), "--output-dir", str(catalogue))
+    evidence = table(catalogue / "VC_discovery_evidence.tsv")
+    assert len(evidence) == 2
+    dual = next(row for row in evidence if row["supporting_method_count"] == "2")
+    assert dual["discovery_pattern"] == "VirSorter2 + geNomad"
+
+    taxonomy = write(tmp_path / "taxonomy.tsv", "query_id\tquery_taxids\tlca_taxid\tlca_lineage\tlca_name\tlca_rank\tbest_subject_id\tbest_evalue\tbest_bitscore\tbest_staxids\tbest_scientific_names\tbest_lineages\n" + f"{dual['vc_id']}\t10239\t10239\tViruses;f__Coronaviridae\tCoronaviridae\tfamily\tref\t1e-30\t100\t10239\tvirus\tViruses; Coronaviridae\n")
+    decision_dir = tmp_path / "decision"
+    run("resolve_viral_decision.py", "--catalogue-fasta", str(catalogue / "VC_catalogue.fna"), "--discovery-evidence", str(catalogue / "VC_discovery_evidence.tsv"), "--taxonomy", str(taxonomy), "--output-dir", str(decision_dir))
+    decisions = table(decision_dir / "viral_decision.tsv")
+    assert next(row for row in decisions if row["vc_id"] == dual["vc_id"])["decision"] == "confirmed_viral"
+
+    checkv_fasta = write(tmp_path / "checkv.fna", f">{dual['vc_id']}_1\nACGTACGT\n")
+    quality = write(tmp_path / "quality.tsv", f"contig_id\tcheckv_quality\tcompleteness\tcontamination\n{dual['vc_id']}\tHigh-quality\t90\t0\n")
+    ictv_hits = write(tmp_path / "ictv.tsv", f"qseqid\tqlen\tqstart\tqend\tpident\tlength\tevalue\tbitscore\tsseqid\n{dual['vc_id']}_1\t8\t1\t8\t99\t8\t1e-20\t90\tREF1\n")
+    ictv_meta = write(tmp_path / "ictv_meta.tsv", "reference_id\tfamily\tgenus\tspecies\tbaltimore_group\nREF1\tCoronaviridae\tBetacoronavirus\tSevere acute respiratory syndrome-related coronavirus\tIV\n")
+    manifest = write(tmp_path / "manifest.tsv", "sample_id\nS1\nS2\n")
+    final_dir, samples = tmp_path / "final", tmp_path / "samples"
+    run("build_final_virome_catalogue.py", "--checkv-fasta", str(checkv_fasta), "--checkv-quality", str(quality), "--decision", str(decision_dir / "viral_decision.tsv"), "--nr-taxonomy", str(taxonomy), "--source-mapping", str(catalogue / "VC_source_mapping.tsv"), "--ictv-hits", str(ictv_hits), "--ictv-metadata", str(ictv_meta), "--manifest", str(manifest), "--catalogue-dir", str(final_dir), "--sample-dir", str(samples))
+    final = table(final_dir / "VF_catalogue.tsv")
+    assert final[0]["parent_vc_id"] == dual["vc_id"]
+    assert final[0]["ictv_species"].startswith("Severe acute")
+    assert (samples / "S1" / "references" / "VF_0000001.fna").is_file()
+
+
+def test_report_labels_vc_and_vf_not_votu(tmp_path: Path) -> None:
+    write(tmp_path / "03_candidate_catalogue/VC_discovery_evidence.tsv", "vc_id\tdiscovery_pattern\nVC_0000001\tgeNomad + VirSorter2\n")
+    write(tmp_path / "04_nr_annotation/viral_decision.tsv", "vc_id\tdecision\nVC_0000001\tconfirmed_viral\n")
+    write(tmp_path / "07_final_catalogue/VF_catalogue.tsv", "vf_id\tparent_vc_id\tdecision\tcheckv_quality\tnr_family\tictv_species\tbaltimore_group\tictv_pident\nVF_1\tVC_0000001\tconfirmed_viral\tHigh-quality\tCoronaviridae\tExample virus\tIV\t99\n")
+    write(tmp_path / "08_sample_results/sample_fragment_presence.tsv", "sample_id\tvf_id\tparent_vc_id\nS1\tVF_1\tVC_0000001\n")
+    run("build_virome_catalogue_report.py", "--output-dir", str(tmp_path))
+    report = (tmp_path / "reports/virome_catalogue_dashboard.html").read_text(encoding="utf-8")
+    assert "全局候选 VC" in report and "最终片段 VF" in report
+    assert "vOTU" in report  # Explicit boundary statement, not a result identifier.

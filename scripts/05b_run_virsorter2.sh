@@ -20,7 +20,7 @@ positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL )) || die 2 
 [[ $VIRSORTER_USE_CONDA_OFF == 0 || $VIRSORTER_USE_CONDA_OFF == 1 ]] || die 2 'VIRSORTER_USE_CONDA_OFF must be 0 or 1 in pipeline.env'
 require_executable "$VIRSORTER_COMMAND"
 OUT="$OUTPUT_DIR/02b_virsorter2"; CANDIDATES="$OUT/viral_candidates_virsorter2.fna"
-if [[ -s $CANDIDATES ]]; then
+if [[ -f $CANDIDATES ]]; then
   (( RESUME )) && { echo "[INFO] VirSorter2 candidates already exist; skipped"; exit 0; }
   die 4 "VirSorter2 output already exists; use --resume or choose a new report output directory"
 fi
@@ -33,6 +33,10 @@ VIRSORTER_ARGS=(run -i "$INPUT" -w "$OUT/run" -j "$THREADS")
 VIRSORTER_ARGS+=(all)
 "$VIRSORTER_COMMAND" "${VIRSORTER_ARGS[@]}" >"$OUT/virsorter2.stdout.log" 2>"$OUT/virsorter2.stderr.log"
 VIRUS_FASTA=$(find "$OUT/run" -type f -name 'final-viral-combined.fa' -print -quit)
-[[ -n $VIRUS_FASTA && -s $VIRUS_FASTA ]] || die 1 "VirSorter2 finished without final-viral-combined.fa; inspect: $OUT/virsorter2.stderr.log"
-cp -- "$VIRUS_FASTA" "$CANDIDATES"
+if [[ -n $VIRUS_FASTA && -s $VIRUS_FASTA ]]; then
+  cp -- "$VIRUS_FASTA" "$CANDIDATES"
+else
+  : > "$CANDIDATES"
+  echo "[WARN] VirSorter2 found no viral candidate FASTA; continuing with the other discovery methods" >&2
+fi
 echo "[INFO] VirSorter2 candidates: $CANDIDATES"
