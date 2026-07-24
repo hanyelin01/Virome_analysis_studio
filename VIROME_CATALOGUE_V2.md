@@ -67,6 +67,28 @@ bash scripts/build_ictv_reference_db.sh \
 
 将命令输出的 `ICTV_REFERENCE_DMND`、`ICTV_REFERENCE_METADATA` 与 `ICTV_REFERENCE_VERSION` 写入 `config/pipeline.env`。构建器记录蛋白与元数据 SHA-256；更新时创建新目录和新版本，绝不覆盖已用于分析的参考库。
 
+### 从官方 VMR 构建正式库
+
+推荐固定 ICTV 发布页列出的 VMR 文件，而不是直接使用来源未知的旧 FASTA。`build_ictv_vmr_reference.py` 会把 VMR 中的 GenBank accession 分批提交到 NCBI E-utilities，获取 CDS 翻译蛋白；每条蛋白都保留 VMR 记录、来源 accession、蛋白 accession、基因组类型与巴尔的摩组。网络中断后使用 `--resume`，已缓存批次不会重复下载。
+
+```bash
+VMR_DIR=/home/hanyl/Database/ICTV/VMR_MSL41.v1.20260721
+
+.venv/bin/python scripts/build_ictv_vmr_reference.py \
+  --vmr-xlsx "$VMR_DIR/VMR_MSL41.v1.20260721.xlsx" \
+  --output-dir "$VMR_DIR/staging" \
+  --version VMR_MSL41.v1.20260721 \
+  --resume
+
+bash scripts/build_ictv_reference_db.sh \
+  --metadata "$VMR_DIR/staging/ictv_reviewed_metadata.tsv" \
+  --protein-fasta "$VMR_DIR/staging/ictv_proteins.faa" \
+  --output-dir "$VMR_DIR/reference" \
+  --version VMR_MSL41.v1.20260721
+```
+
+构建器输出 `ictv_unresolved_accessions.tsv` 和 `ictv_vmr_retrieval_manifest.json`。前者是没有可解析 accession、源分类冲突或 NCBI 未返回 CDS 的记录；它必须随版本保存并在报告中作为参考覆盖范围说明。`unclassified` 巴尔的摩组表示 VMR 的基因组类型无法以预设规则唯一映射，并不表示该病毒未被 ICTV 分类。
+
 在提交 v2 前，`pipeline.env` 至少还要配置 `GENOMAD_DB`、`CHECKV_DB`、`DIAMOND_NR_DB`、`TAXONKIT_DB`、`MEGAN_DAA2RMA`、`MEGAN_MAP_DB`；运行账号的 `PATH` 必须有 `genomad`、`virsorter`、`checkv`、`diamond`、`taxonkit` 和 `coverm`。
 
 ## 运行前诊断
