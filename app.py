@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import csv
 import io
+import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import streamlit as st
@@ -16,6 +18,7 @@ PIPELINE_SCRIPT = PIPELINE_HOME / "scripts" / "run_pipeline.sh"
 VIRAL_REPORT_SCRIPT = PIPELINE_HOME / "scripts" / "run_viral_report.sh"
 VIROME_CATALOGUE_SCRIPT = PIPELINE_HOME / "scripts" / "run_virome_catalogue.sh"
 FINE_ANNOTATION_SCRIPT = PIPELINE_HOME / "scripts" / "run_fine_annotation.sh"
+VIROME_DIAGNOSTIC_SCRIPT = PIPELINE_HOME / "scripts" / "diagnose_virome_environment.py"
 CONFIG_FILE = PIPELINE_HOME / "config" / "pipeline.env"
 
 
@@ -91,6 +94,71 @@ def launch(command: list[str]) -> int:
         env={**os.environ, "LANG": "C", "LC_ALL": "C"},
     )
     return process.pid
+
+
+def run_virome_diagnostic() -> tuple[dict[str, object] | None, str | None]:
+    """Run the read-only v2 readiness check and return its JSON contract."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(VIROME_DIAGNOSTIC_SCRIPT), "--config", str(CONFIG_FILE), "--format", "json"],
+            cwd=PIPELINE_HOME,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=20,
+            check=False,
+        )
+        report = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        return None, f"诊断程序未能生成有效结果：{error}"
+    if not isinstance(report, dict) or "checks" not in report:
+        return None, "诊断程序返回的结果格式不符合预期。"
+    return report, None
+
+
+def show_virome_diagnostic_panel() -> None:
+    key = "virome_environment_diagnostic"
+    st.caption("只读检查：不会启动分析、下载数据库或读取你的测序数据。")
+    if st.button("检查 v2 环境与参考数据库", key="run_virome_environment_diagnostic", use_container_width=True):
+        report, error = run_virome_diagnostic()
+        st.session_state[key] = {"report": report, "error": error}
+    state = st.session_state.get(key)
+    if not state:
+        st.info("提交前建议运行一次诊断；它会检查工具、数据库、ICTV 元数据和关键参数。")
+        return
+    if state["error"]:
+        st.error(state["error"])
+        return
+    report = state["report"]
+    status = report["status"]
+    summary = report["summary"]
+    if status == "ready":
+        st.success("v2 运行条件已就绪。仍建议先使用小型验收数据完成一次完整运行。")
+    elif status == "ready_with_warnings":
+        st.warning("v2 可以启动，但存在建议处理的警告。")
+    else:
+        st.error("v2 当前不可启动；请先修复下方标为“失败”的检查项。")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("通过", summary["pass"])
+    c2.metric("警告", summary["warn"])
+    c3.metric("失败", summary["fail"])
+    labels = {"pass": "通过", "warn": "警告", "fail": "失败", "info": "信息"}
+    rows = [{
+        "状态": labels.get(item["status"], item["status"]),
+        "类别": item["category"],
+        "检查项": item["check_id"],
+        "结果": item["message"],
+        "修复建议": item["remediation"],
+        "路径/版本": item["value"],
+    } for item in report["checks"]]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.download_button(
+        "下载诊断 JSON",
+        data=json.dumps(report, ensure_ascii=False, indent=2),
+        file_name="virome_catalogue_v2_readiness.json",
+        mime="application/json",
+        use_container_width=True,
+    )
 
 
 def latest_run(state_base: Path) -> Path | None:
@@ -230,7 +298,7 @@ st.markdown(
 )
 st.markdown("""<div class='hero'><h2>🧬 Virome Contig Studio</h2><p>从原始测序数据到病毒多样性解读与 DIAMOND 精细注释的中文科研工作台。</p></div>""", unsafe_allow_html=True)
 
-if not all(script.is_file() for script in [PIPELINE_SCRIPT, VIRAL_REPORT_SCRIPT, VIROME_CATALOGUE_SCRIPT, FINE_ANNOTATION_SCRIPT]):
+if not all(script.is_file() for script in [PIPELINE_SCRIPT, VIRAL_REPORT_SCRIPT, VIROME_CATALOGUE_SCRIPT, FINE_ANNOTATION_SCRIPT, VIROME_DIAGNOSTIC_SCRIPT]):
     st.error("未找到必需脚本。请重新同步完整的 contig_pipeline 软件目录。")
     st.stop()
 if not ALLOWED_ROOTS:
@@ -337,6 +405,8 @@ try:
         adapter_evidence_root = clean if needs_raw else None
 
     elif task == "virome_catalogue":
+        with st.expander("运行前：环境与参考数据库诊断", expanded=True):
+            show_virome_diagnostic_panel()
         with st.container(border=True):
             st.subheader("输入：已有 cleandata 与 assembly")
             assembly_text = st.text_input("assembly 路径", placeholder="/data/project/assembly")

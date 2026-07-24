@@ -1,0 +1,2 @@
+query_id	query_taxids	lca_taxid	lca_lineage	lca_name	lca_rank	best_subject_id	best_evalue	best_bitscore	best_staxids	best_scientific_names	best_lineages
+VC_0000001	10239	10239	Viruses;f__Coronaviridae	Coronaviridae	family	nr_ref	1e-30	100	10239	virus	Viruses; Coronaviridae

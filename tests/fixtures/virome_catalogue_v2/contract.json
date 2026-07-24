@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "fixture_scope": "v2 provenance and decision logic only; no external bioinformatics tool is invoked",
+  "expected": {
+    "input_sample_ids": ["S1", "S2"],
+    "candidate_count": 2,
+    "confirmed_viral_count": 1,
+    "final_fragment_count": 1,
+    "final_fragment_sample_ids": ["S1"],
+    "forbidden_result_identifier": "vOTU"
+  }
+}

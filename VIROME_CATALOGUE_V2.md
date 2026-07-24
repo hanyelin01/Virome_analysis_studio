@@ -69,6 +69,33 @@ bash scripts/build_ictv_reference_db.sh \
 
 在提交 v2 前，`pipeline.env` 至少还要配置 `GENOMAD_DB`、`CHECKV_DB`、`DIAMOND_NR_DB`、`TAXONKIT_DB`、`MEGAN_DAA2RMA`、`MEGAN_MAP_DB`；运行账号的 `PATH` 必须有 `genomad`、`virsorter`、`checkv`、`diamond`、`taxonkit` 和 `coverm`。
 
+## 运行前诊断
+
+每次首次部署、更新 Conda 环境或更新任一参考库后，先执行只读诊断：
+
+```bash
+python3 scripts/diagnose_virome_environment.py --format text
+python3 scripts/diagnose_virome_environment.py --format json --write virome_catalogue_v2_readiness.json
+```
+
+也可在网页任务“④ 全局病毒发现、分类与精细注释”的“运行前：环境与参考数据库诊断”面板中执行。诊断检查：
+
+- geNomad、VirSorter2、CheckV、DIAMOND、TaxonKit、CoverM 和 MEGAN `daa2rma` 是否可调用；
+- NR、ICTV、CheckV、geNomad、TaxonKit 与 MEGAN 参考路径及 ICTV TSV 表头；
+- 会影响结果的长度、线程、TaxID、e-value、CoverM 阈值和 VirSorter2 配置。
+
+退出码 `0` 表示可以启动（可带警告），退出码 `3` 表示有阻断性问题。诊断不会下载、修改数据库或读取测序数据；它不替代真实小批次验收。
+
+## 小型回归测试契约
+
+`tests/fixtures/virome_catalogue_v2/` 是无敏感信息的最小合成契约。它不伪造或替代真实工具运行，而是固定验证 VC 去冗余、NR 证据判定、CheckV 子片段恢复、ICTV 注释、VF 回分发和报告命名边界：
+
+```bash
+python3 -m unittest tests.test_virome_environment_diagnostics tests.test_virome_catalogue_regression_contract -v
+```
+
+变更该目录的预期结果时，必须同时说明对应的科学规则或软件修复原因。建议在每次发布前另以独立、脱敏的小批次完成真实工具和参考库的端到端验收。
+
 ## 恢复规则
 
 首次运行创建 `.contig_pipeline/virome_catalogue_contract.env`。只有输入、数据库和结果参数一致时 `--resume` 才会跳过完整步骤；改变 ICTV、NR、输入目录或阈值时请使用新的输出目录。
