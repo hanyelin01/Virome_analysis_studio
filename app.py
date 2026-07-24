@@ -347,14 +347,44 @@ try:
             st.caption("每个样本独立进行候选去冗余、reads 回贴和出报告；批次页面仅汇总“哪些分类单元出现在哪些样本”，不进行跨样本生态统计。")
         c1, c2 = st.columns(2)
         with c1: threads = st.number_input("病毒分析线程数", 1, MAX_VIRAL_THREADS, min(8, MAX_VIRAL_THREADS))
-        with c2: viral_min = st.number_input("病毒识别最短 contig 长度", 200, 100000, max(200, int(SETTINGS.get("VIRAL_MIN_CONTIG_LEN", "1000"))))
+        with c2: viral_min = st.number_input("geNomad 输入最短 contig 长度", 200, 100000, max(200, int(SETTINGS.get("VIRAL_MIN_CONTIG_LEN", "1000"))))
+        unified_minimum = st.checkbox(
+            "CheckV后报告与vOTU沿用同一长度阈值",
+            value=True,
+            help="推荐保持勾选。取消后可为CheckV输出单独设置更严格的长度下限。",
+        )
+        post_checkv_min = st.number_input(
+            "CheckV后报告/vOTU最短病毒片段长度",
+            200,
+            100000,
+            int(viral_min) if unified_minimum else max(
+                200, int(SETTINGS.get("VOTU_POST_CHECKV_MIN_LEN", "1000"))
+            ),
+            disabled=unified_minimum,
+        )
+        if unified_minimum:
+            post_checkv_min = viral_min
+        st.caption(
+            f"本次有效阈值：geNomad输入 ≥ {viral_min} bp；"
+            f"CheckV后进入报告/vOTU ≥ {post_checkv_min} bp。"
+        )
+        with st.expander("查看本次其余有效病毒分析参数"):
+            st.dataframe([
+                {"参数": "vOTU ANI (%)", "值": SETTINGS.get("VOTU_ANI", "95"), "来源": "pipeline.env"},
+                {"参数": "vOTU aligned fraction (%)", "值": SETTINGS.get("VOTU_ALIGNED_FRACTION", "85"), "来源": "pipeline.env"},
+                {"参数": "CoverM read identity (%)", "值": SETTINGS.get("COVERM_MIN_READ_PERCENT_IDENTITY", "95"), "来源": "pipeline.env"},
+                {"参数": "CoverM read aligned (%)", "值": SETTINGS.get("COVERM_MIN_READ_ALIGNED_PERCENT", "75"), "来源": "pipeline.env"},
+                {"参数": "CoverM covered fraction (%)", "值": SETTINGS.get("COVERM_MIN_COVERED_FRACTION", "10"), "来源": "pipeline.env"},
+                {"参数": "重要性相对丰度 (%)", "值": SETTINGS.get("VOTU_IMPORTANCE_RELATIVE_ABUNDANCE", "5"), "来源": "pipeline.env"},
+                {"参数": "批次默认分类层级", "值": overview_rank, "来源": "当前页面"},
+            ], use_container_width=True, hide_index=True)
         enable_vs2 = st.checkbox("启用 VirSorter2 交叉验证（可选，耗时更高）")
         if not SETTINGS.get("GENOMAD_DB") or not SETTINGS.get("CHECKV_DB"):
             st.warning("GENOMAD_DB 或 CHECKV_DB 尚未配置；提交前请先完成 config/pipeline.env 设置。")
         assembly = validate_path(assembly_text, "assembly 路径", exists=True)
         clean = validate_path(clean_text, "cleandata 路径", exists=True)
         output = validate_path(output_text, "viral_report 输出路径", exists=False)
-        command = [str(VIRAL_REPORT_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--min-contig-length", str(viral_min), "--overview-rank", overview_rank]
+        command = [str(VIRAL_REPORT_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--min-contig-length", str(viral_min), "--post-checkv-min-length", str(post_checkv_min), "--overview-rank", overview_rank]
         if enable_vs2: command.append("--enable-virsorter2")
         state_base = output
 
@@ -400,6 +430,7 @@ try:
             state_base = custom_output
 
     resume = st.checkbox("跳过已完整完成的步骤（resume）", value=True)
+    st.caption("若改变影响结果的参数，已有输出只有在参数契约一致时才会续跑；不一致时请使用新的输出目录。")
     if resume and command is not None:
         command.append("--resume")
     if command is not None:

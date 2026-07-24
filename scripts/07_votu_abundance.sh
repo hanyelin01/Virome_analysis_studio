@@ -4,27 +4,28 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"; load_pipeline_config
 
-MANIFEST='' INPUT='' OUTPUT_DIR='' THREADS='' RESUME=0
+MANIFEST='' INPUT='' OUTPUT_DIR='' THREADS='' MIN_LENGTH="$VOTU_POST_CHECKV_MIN_LEN" RESUME=0
 while (($#)); do
   case "$1" in
-    --manifest|--input|--output-dir|--threads)
+    --manifest|--input|--output-dir|--threads|--min-length)
       (($# >= 2)) || die 2 "Missing value for $1"
-      case "$1" in --manifest) MANIFEST=$2;; --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; esac
+      case "$1" in --manifest) MANIFEST=$2;; --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --min-length) MIN_LENGTH=$2;; esac
       shift 2;;
     --resume) RESUME=1; shift;;
-    -h|--help) echo "Usage: $0 --manifest PATH --input CHECKV_FASTA --output-dir PATH --threads N [--resume]"; exit 0;;
+    -h|--help) echo "Usage: $0 --manifest PATH --input CHECKV_FASTA --output-dir PATH --threads N [--min-length N] [--resume]"; exit 0;;
     *) die 2 "Unknown option: $1";;
   esac
 done
 [[ -f $MANIFEST && -s $INPUT && -n $OUTPUT_DIR && -n $THREADS ]] || die 2 'Manifest, input, output and threads are required'
 positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL )) || die 2 'Invalid CoverM thread request'
-positive_int "$VOTU_POST_CHECKV_MIN_LEN" || die 2 'VOTU_POST_CHECKV_MIN_LEN must be a positive integer'
+positive_int "$MIN_LENGTH" || die 2 '--min-length must be a positive integer'
 require_command vclust; require_command coverm; require_command minimap2; require_command samtools
 
 OUT="$OUTPUT_DIR/04_sample_votu"
 SPLIT_SUMMARY="$OUT/split_summary.tsv"
 SPLIT_COMPLETE="$OUT/split_complete.json"
 STATUS="$OUT/sample_status.tsv"
+CONTRACT="$OUT/run_contract.json"
 PYTHON_EXEC="${CONTIG_PIPELINE_PYTHON:-$PIPELINE_HOME/.venv/bin/python}"
 [[ -x $PYTHON_EXEC ]] || die 127 "Pipeline Python interpreter is unavailable: $PYTHON_EXEC"
 if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT" && (( ! RESUME )); then
@@ -32,7 +33,23 @@ if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT" && (( ! RESUME )); then
 fi
 mkdir -p "$OUT"
 
-if [[ ! -s $SPLIT_COMPLETE ]]; then
+FORCE_SPLIT=0
+if [[ ! -s $CONTRACT ]]; then
+  if find "$OUT" -name votu_summary.tsv -type f -size +0c -print -quit | grep -q .; then
+    die 4 "Existing vOTU results predate parameter contracts and cannot be safely resumed; use a new report output directory"
+  fi
+  FORCE_SPLIT=1
+fi
+"$PYTHON_EXEC" "$SCRIPT_DIR/helpers/votu_run_contract.py" \
+  --contract "$CONTRACT" --manifest "$MANIFEST" --input "$INPUT" \
+  --min-length "$MIN_LENGTH" --threads "$THREADS" --ani "$VOTU_ANI" \
+  --aligned-fraction "$VOTU_ALIGNED_FRACTION" \
+  --read-identity "$COVERM_MIN_READ_PERCENT_IDENTITY" \
+  --read-aligned-percent "$COVERM_MIN_READ_ALIGNED_PERCENT" \
+  --covered-fraction "$COVERM_MIN_COVERED_FRACTION" \
+  --importance-abundance "$VOTU_IMPORTANCE_RELATIVE_ABUNDANCE"
+
+if [[ ! -s $SPLIT_COMPLETE || $FORCE_SPLIT -eq 1 ]]; then
   [[ ! -e $SPLIT_SUMMARY ]] || echo "[INFO] Previous candidate split did not complete; rebuilding it"
   "$PYTHON_EXEC" "$SCRIPT_DIR/helpers/split_viral_candidates_by_sample.py" \
     --input "$INPUT" \
@@ -41,7 +58,7 @@ if [[ ! -s $SPLIT_COMPLETE ]]; then
     --taxonomy "$OUTPUT_DIR/02_genomad/virus_summary.tsv" \
     --manifest "$MANIFEST" \
     --output-root "$OUT" \
-    --min-length "$VOTU_POST_CHECKV_MIN_LEN"
+    --min-length "$MIN_LENGTH"
 else
   echo "[INFO] Completed sample candidate split already exists; skipped"
 fi

@@ -32,6 +32,25 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
+def load_sample_groups(path: Path | None, samples: list[str]) -> dict[str, str]:
+    if path is None:
+        return {}
+    rows = read_tsv(path)
+    groups: dict[str, str] = {}
+    known = set(samples)
+    for row in rows:
+        sample = (row.get("sample_id") or "").strip()
+        group = (row.get("group") or "").strip()
+        if not sample or not group:
+            raise SystemExit("Groups file requires non-empty sample_id and group columns")
+        if sample not in known:
+            raise SystemExit(f"Groups file contains a sample outside the manifest: {sample}")
+        if sample in groups:
+            raise SystemExit(f"Groups file contains a duplicate sample: {sample}")
+        groups[sample] = group
+    return groups
+
+
 def write_tsv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -290,14 +309,15 @@ def sample_payload(
     }
 
 
-def build_batch_payload(samples: list[str], payloads: dict[str, dict[str, Any]], rank: str, top_taxa: int) -> dict[str, Any]:
+def build_batch_payload(samples: list[str], payloads: dict[str, dict[str, Any]], rank: str, top_taxa: int, sample_groups: dict[str, str] | None = None) -> dict[str, Any]:
+    sample_groups = sample_groups or {}
     presence: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     long_rows: list[dict[str, Any]] = []
     sample_rows: list[dict[str, Any]] = []
     for sample in samples:
         payload = payloads[sample]
         summary = payload["summary"]
-        sample_rows.append({"sample_id": sample, "status": payload["status"], **summary})
+        sample_rows.append({"sample_id": sample, "group": sample_groups.get(sample, ""), "status": payload["status"], **summary})
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for row in payload["rows"]:
             if row["detected"]:
@@ -308,6 +328,7 @@ def build_batch_payload(samples: list[str], payloads: dict[str, dict[str, Any]],
                 "rank": rank,
                 "taxon": taxon,
                 "sample_id": sample,
+                "group": sample_groups.get(sample, ""),
                 "detected_local_votu_count": len(items),
                 "top_relative_abundance": round(max(item["relative_abundance"] for item in items), 6),
                 "read_count": sum(item["read_count"] for item in items),
@@ -489,6 +510,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--groups-file", type=Path)
     parser.add_argument("--overview-rank", choices=["family", "genus", "species"], default="family")
     parser.add_argument("--theme", choices=["quarto-scientific"], default="quarto-scientific")
     parser.add_argument("--top-taxa", type=int, default=0, help="0 means display all classified taxa")
@@ -516,6 +538,7 @@ def main() -> None:
     sample_report_dir.mkdir(parents=True, exist_ok=True)
 
     samples = [row["sample_id"] for row in read_tsv(args.manifest) if row.get("sample_id")]
+    sample_groups = load_sample_groups(args.groups_file, samples)
     status = {row.get("sample_id", ""): row.get("status", "NOT_RUN") for row in read_tsv(root / "04_sample_votu" / "sample_status.tsv")}
     diamond = read_diamond_annotations(root / "02_diamond_nr_taxonomy" / "contig_taxonomy_lca.tsv")
     priority_families = normalise_family_set(args.priority_families)
@@ -526,7 +549,7 @@ def main() -> None:
         rows = [serialise_row(enrich_annotation(row, diamond)) for row in read_tsv(root / "04_sample_votu" / sample / "votu_summary.tsv")]
         payloads[sample] = sample_payload(sample, status.get(sample, "NOT_RUN"), rows, priority_taxa, ictv_reference)
 
-    batch = build_batch_payload(samples, payloads, args.overview_rank, args.top_taxa)
+    batch = build_batch_payload(samples, payloads, args.overview_rank, args.top_taxa, sample_groups)
     rank_label = {"family": "病毒科", "genus": "病毒属", "species": "病毒种"}[args.overview_rank]
     metadata = {
         "report_schema_version": SCHEMA_VERSION,
@@ -547,6 +570,7 @@ def main() -> None:
         },
         "source_files": {
             "manifest": str(args.manifest),
+            "groups_file": str(args.groups_file) if args.groups_file else "",
             "sample_status": str(root / "04_sample_votu" / "sample_status.tsv"),
             "local_votu_root": str(root / "04_sample_votu"),
             "diamond_taxonomy": str(root / "02_diamond_nr_taxonomy" / "contig_taxonomy_lca.tsv"),
@@ -564,9 +588,9 @@ def main() -> None:
         target = f"../virome_dashboard.html#sample={quote(sample)}"
         (sample_report_dir / f"{safe_id(sample)}.html").write_text(redirect_page(f"样本 {sample} 病毒判读", target), encoding="utf-8")
 
-    write_tsv(report_dir / "batch_taxa_presence.tsv", batch["presence_rows"], ["rank", "taxon", "sample_id", "detected_local_votu_count", "top_relative_abundance", "read_count", "candidate_contig_count", "high_quality_count", "report_path"])
-    write_tsv(report_dir / "sample_report_index.tsv", batch["samples"], ["sample_id", "status", "local_votu_count", "detected_local_votu_count", "quality_supported_count", "priority_count", "priority_family_votu_count", "read_count"])
-    write_tsv(data_dir / "batch_summary.tsv", batch["samples"], ["sample_id", "status", "local_votu_count", "detected_local_votu_count", "quality_supported_count", "priority_count", "priority_family_votu_count", "read_count"])
+    write_tsv(report_dir / "batch_taxa_presence.tsv", batch["presence_rows"], ["rank", "taxon", "sample_id", "group", "detected_local_votu_count", "top_relative_abundance", "read_count", "candidate_contig_count", "high_quality_count", "report_path"])
+    write_tsv(report_dir / "sample_report_index.tsv", batch["samples"], ["sample_id", "group", "status", "local_votu_count", "detected_local_votu_count", "quality_supported_count", "priority_count", "priority_family_votu_count", "read_count"])
+    write_tsv(data_dir / "batch_summary.tsv", batch["samples"], ["sample_id", "group", "status", "local_votu_count", "detected_local_votu_count", "quality_supported_count", "priority_count", "priority_family_votu_count", "read_count"])
     write_tsv(data_dir / "evidence_legend.tsv", [
         {"field": "reads_supported_local_votu", "meaning": "样本内本地 vOTU representative 获得 clean reads 回贴支持", "not_evidence_for": "绝对丰度、病毒活性、感染或致病性"},
         {"field": "checkv_quality", "meaning": "CheckV 的病毒基因组质量评估", "not_evidence_for": "独立实验验证或宿主范围"},

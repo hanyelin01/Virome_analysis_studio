@@ -154,6 +154,7 @@ def main() -> None:
     completion = {
         "schema_version": 1,
         "manifest_sample_count": len(samples),
+        "min_length": args.min_length,
         "kept_candidate_count": sum(kept.values()),
         "excluded_short_candidate_count": sum(short.values()),
         "unassigned_candidate_count": 0,

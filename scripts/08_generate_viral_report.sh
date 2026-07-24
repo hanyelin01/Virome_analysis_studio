@@ -28,6 +28,7 @@ fi
 PYTHON_EXEC="${CONTIG_PIPELINE_PYTHON:-$PIPELINE_HOME/.venv/bin/python}"
 [[ -x $PYTHON_EXEC ]] || die 127 "Pipeline Python interpreter is unavailable: $PYTHON_EXEC"
 args=(--output-dir "$OUTPUT_DIR" --manifest "$MANIFEST" --overview-rank "$OVERVIEW_RANK" --theme "$THEME" --top-taxa "$TOP_TAXA" --priority-families "$PRIORITY_FAMILIES")
+[[ -z $GROUPS_FILE ]] || args+=(--groups-file "$GROUPS_FILE")
 [[ -f $ICTV_REFERENCE ]] && args+=(--ictv-reference "$ICTV_REFERENCE") || echo "[WARN] ICTV reference is unavailable; report will mark genome groups as unclassified: $ICTV_REFERENCE" >&2
 [[ -f $PRIORITY_REFERENCE ]] && args+=(--priority-reference "$PRIORITY_REFERENCE") || echo "[WARN] Attention-taxon reference is unavailable; falling back to REPORT_PRIORITY_FAMILIES" >&2
 "$PYTHON_EXEC" "$SCRIPT_DIR/helpers/build_viral_report.py" "${args[@]}"

@@ -57,6 +57,11 @@ class ViralDashboardTest(unittest.TestCase):
                 "sample_B\tpe\t\t\t\t\t/b\n",
                 encoding="utf-8",
             )
+            groups = root / "groups.tsv"
+            groups.write_text(
+                "sample_id\tgroup\nsample_A\tcontrol\nsample_B\ttreatment\n",
+                encoding="utf-8",
+            )
             status = root / "04_sample_votu" / "sample_status.tsv"
             status.parent.mkdir(parents=True)
             status.write_text("sample_id\tstatus\nsample_A\tSUCCESS\nsample_B\tSUCCESS\n", encoding="utf-8")
@@ -74,7 +79,7 @@ class ViralDashboardTest(unittest.TestCase):
                 encoding="utf-8",
             )
             completed = subprocess.run(
-                [sys.executable, str(BUILDER), "--output-dir", str(root), "--manifest", str(manifest), "--overview-rank", "family"],
+                [sys.executable, str(BUILDER), "--output-dir", str(root), "--manifest", str(manifest), "--groups-file", str(groups), "--overview-rank", "family"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -99,6 +104,9 @@ class ViralDashboardTest(unittest.TestCase):
             self.assertEqual(payload["summary"]["detected_local_votu_count"], 1)
             self.assertEqual(payload["rows"][0]["read_count"], 80)
             self.assertIn("virome_dashboard.html", (root / "reports" / "samples" / "sample_A.html").read_text(encoding="utf-8"))
+            batch_rows = (root / "reports" / "data" / "batch_summary.tsv").read_text(encoding="utf-8")
+            self.assertIn("sample_id\tgroup\tstatus", batch_rows)
+            self.assertIn("sample_A\tcontrol\tSUCCESS", batch_rows)
 
 
 if __name__ == "__main__":
