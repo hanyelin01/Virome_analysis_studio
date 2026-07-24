@@ -1,0 +1,20 @@
+name: contig-ui
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - fastp
+  - megahit
+  - genomad
+  - checkv
+  - coverm
+  - vclust
+  - minimap2
+  - samtools
+  - diamond
+  - taxonkit
+# VirSorter2 is deliberately omitted from the default environment because it
+# is optional and needs an additional database setup.  Install it only when
+# the UI's cross-validation option will be used:
+#   mamba install -n contig-ui -c conda-forge -c bioconda virsorter=2

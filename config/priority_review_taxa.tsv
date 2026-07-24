@@ -1,0 +1,5 @@
+taxon_name	taxon_rank	enabled	display_badge	review_order
+Coronaviridae	family	yes	关注科	10
+Paramyxoviridae	family	yes	关注科	20
+Orthomyxoviridae	family	yes	关注科	30
+Flaviviridae	family	yes	关注科	40

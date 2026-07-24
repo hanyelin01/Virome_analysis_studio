@@ -1,0 +1,14 @@
+# Streamlit 1.36 requires Python >=3.8 (and is the version used to validate
+# this project).  Python 3.10 is recommended for deployment.
+streamlit==1.36.0
+# Pin a Python 3.10 wheel available for glibc 2.17+ Linux systems (for example
+# CentOS/RHEL 7).  Without this pin, pip may choose a newer pandas source
+# release and attempt a local C/Cython build with an older system compiler.
+pandas==2.2.3
+# Streamlit requires pyarrow. Pin a CPython 3.10 manylinux_2_17 wheel instead
+# of allowing pip to choose a newer source-only release on older servers.
+numpy==1.26.4
+pyarrow==15.0.2
+# Used only by scripts/helpers/build_ictv_family_reference.py when refreshing
+# the versioned ICTV Master Species List reference dictionary.
+openpyxl==3.1.5

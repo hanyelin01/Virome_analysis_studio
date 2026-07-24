@@ -1,0 +1,19 @@
+[Unit]
+Description=Contig Pipeline Streamlit service
+After=network.target
+
+[Service]
+# Replace both paths and the account before installing this unit.
+User=task-runner
+WorkingDirectory=/opt/contig_pipeline
+# Set this to the Conda environment that contains fastp, megahit and the
+# optional viral-report tools.  systemd does not inherit an interactive shell.
+Environment=PATH=/home/task-runner/miniconda3/envs/contig-ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/contig_pipeline/.venv/bin/streamlit run /opt/contig_pipeline/app.py --server.address 127.0.0.1 --server.port 8501
+Restart=on-failure
+RestartSec=5
+Environment=LANG=C
+Environment=LC_ALL=C
+
+[Install]
+WantedBy=multi-user.target

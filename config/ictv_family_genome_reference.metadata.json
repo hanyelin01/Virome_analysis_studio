@@ -1,0 +1,10 @@
+{
+  "reference_name": "ICTV Master Species List family genome reference",
+  "source_release": "ICTV MSL41.v1 (2025)",
+  "source_url": "https://ictv.global/msl",
+  "source_filename": "ICTV_Master_Species_List_2025_MSL41.v1.xlsx",
+  "source_sha256": "9d262d7864f1f619445a897ae568718ed15b1309c8f0c157a12fd7fb9fd07801",
+  "family_count": 427,
+  "generation_rule": "Group exact ICTV MSL Genome values by family. DNA, RNA and reverse-transcribing labels are emitted only when all species-level values map to one display group; cross-group families are marked MIXED/review_required.",
+  "generated_utc": "2026-07-23T00:00:00Z"
+}
