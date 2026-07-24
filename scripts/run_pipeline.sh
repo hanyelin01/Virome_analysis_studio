@@ -45,10 +45,13 @@ MIN_CONTIG_LEN=$MINLEN
 RESUME=$RESUME
 ADAPTER_PROFILE=$ADAPTER_PROFILE
 ADAPTER_CATALOG=$ADAPTER_CATALOG
+ADAPTER_SEQUENCE_REFERENCE=$ADAPTER_SEQUENCE_REFERENCE
 EOF
-python3 "$SCRIPT_DIR/helpers/adapter_evidence.py" validate --catalog "$ADAPTER_CATALOG"
+python3 "$SCRIPT_DIR/helpers/adapter_evidence.py" validate --catalog "$ADAPTER_CATALOG" --reference "$ADAPTER_SEQUENCE_REFERENCE"
 cp -- "$ADAPTER_CATALOG" "$RUN_DIR/adapter_catalog.snapshot.tsv"
 sha256sum "$RUN_DIR/adapter_catalog.snapshot.tsv" > "$RUN_DIR/adapter_catalog.snapshot.sha256"
+cp -- "$ADAPTER_SEQUENCE_REFERENCE" "$RUN_DIR/adapter_sequence_reference.snapshot.tsv"
+sha256sum "$RUN_DIR/adapter_sequence_reference.snapshot.tsv" > "$RUN_DIR/adapter_sequence_reference.snapshot.sha256"
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Pipeline stopped; log: $LOG"; exit "$rc"; }
 trap on_error ERR
@@ -57,7 +60,7 @@ preflight=(bash "$SCRIPT_DIR/00_preflight.sh" --task "$TASK" --cleandata-dir "$C
 [[ $TASK == assembly_only || $TASK == full ]] && preflight+=(--clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR")
 run_step preflight "${preflight[@]}"
 if [[ $TASK == qc_only || $TASK == full ]]; then
-  cmd=(bash "$SCRIPT_DIR/01_fastp_pe.sh" --manifest "$MANIFEST" --parallel-samples "$QC_PARALLEL" --threads-per-sample "$QC_THREADS" --adapter-profile "$ADAPTER_PROFILE" --adapter-catalog "$ADAPTER_CATALOG"); (( RESUME )) && cmd+=(--resume); run_step fastp "${cmd[@]}"
+  cmd=(bash "$SCRIPT_DIR/01_fastp_pe.sh" --manifest "$MANIFEST" --parallel-samples "$QC_PARALLEL" --threads-per-sample "$QC_THREADS" --adapter-profile "$ADAPTER_PROFILE" --adapter-catalog "$ADAPTER_CATALOG" --adapter-reference "$ADAPTER_SEQUENCE_REFERENCE"); (( RESUME )) && cmd+=(--resume); run_step fastp "${cmd[@]}"
 fi
 if [[ $TASK == assembly_only || $TASK == full ]]; then
   cmd=(bash "$SCRIPT_DIR/02_megahit.sh" --manifest "$MANIFEST" --parallel-samples "$ASM_PARALLEL" --threads-per-sample "$ASM_THREADS" --min-contig-len "$MINLEN"); (( RESUME )) && cmd+=(--resume); run_step megahit "${cmd[@]}"

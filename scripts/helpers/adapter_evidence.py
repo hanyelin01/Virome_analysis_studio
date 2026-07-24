@@ -16,6 +16,11 @@ REQUIRED = {
     "r2_sequence", "source_level", "source_title", "source_url",
     "source_version", "verified_on", "status", "notes",
 }
+REFERENCE_REQUIRED = {
+    "sequence_id", "aliases", "sequence", "reverse_complement_id", "category",
+    "trimming_action", "source_level", "source_title", "source_url",
+    "verified_on", "status", "notes",
+}
 
 
 def load_catalog(path: Path) -> list[dict[str, str]]:
@@ -44,6 +49,46 @@ def load_catalog(path: Path) -> list[dict[str, str]]:
             raise ValueError(f"line {line_no}: invalid status")
         if not row["source_url"].startswith("https://"):
             raise ValueError(f"line {line_no}: source_url must use HTTPS")
+    return rows
+
+
+def reverse_complement(sequence: str) -> str:
+    return sequence.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+
+
+def load_reference(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    if not rows or not REFERENCE_REQUIRED.issubset(rows[0]):
+        raise ValueError(f"reference columns are incomplete: {path}")
+    by_id: dict[str, dict[str, str]] = {}
+    for line_no, row in enumerate(rows, 2):
+        sequence_id = row["sequence_id"].strip()
+        sequence = row["sequence"].strip().upper()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", sequence_id):
+            raise ValueError(f"reference line {line_no}: invalid sequence_id")
+        if sequence_id in by_id:
+            raise ValueError(f"reference line {line_no}: duplicate sequence_id")
+        if len(sequence) < 6 or not DNA.fullmatch(sequence):
+            raise ValueError(f"reference line {line_no}: invalid sequence")
+        if row["status"] not in {"active", "review", "rejected", "retired"}:
+            raise ValueError(f"reference line {line_no}: invalid status")
+        row["sequence"] = sequence
+        by_id[sequence_id] = row
+    sequences: dict[str, str] = {}
+    for row in rows:
+        sequence = row["sequence"]
+        if sequence in sequences:
+            raise ValueError(
+                f"duplicate reference sequence: {row['sequence_id']} and {sequences[sequence]}"
+            )
+        sequences[sequence] = row["sequence_id"]
+        rc_id = row["reverse_complement_id"]
+        if rc_id:
+            if rc_id not in by_id:
+                raise ValueError(f"{row['sequence_id']}: missing reverse complement {rc_id}")
+            if reverse_complement(sequence) != by_id[rc_id]["sequence"]:
+                raise ValueError(f"{row['sequence_id']}: reverse complement mismatch")
     return rows
 
 
@@ -80,8 +125,23 @@ def sequence_match(sequence: str, rows: list[dict[str, str]]) -> tuple[str, str]
     return "", "not_in_catalogue"
 
 
+def reference_match(sequence: str, rows: list[dict[str, str]]) -> str:
+    if not sequence:
+        return ""
+    matches = []
+    for row in rows:
+        known = row["sequence"]
+        if sequence == known or (
+            min(len(sequence), len(known)) >= 12
+            and (sequence.startswith(known) or known.startswith(sequence))
+        ):
+            matches.append(f"{row['sequence_id']}[{row['status']}]")
+    return ";".join(matches)
+
+
 def summarize(args: argparse.Namespace) -> None:
     rows = load_catalog(args.catalog)
+    reference_rows = load_reference(args.reference)
     selected = profile(rows, args.profile)
     data = json.loads(args.fastp_json.read_text(encoding="utf-8"))
     cutting = data.get("adapter_cutting") or {}
@@ -117,6 +177,7 @@ def summarize(args: argparse.Namespace) -> None:
             "selected_profile_name": selected["display_name"],
             "fastp_reported_sequence": sequence or "未报告",
             "matched_catalogue_profiles": matched or "未匹配",
+            "matched_reference_sequences": reference_match(sequence, reference_rows) or "未匹配",
             "source_judgement": judgement,
             "evidence_method": method,
             "adapter_trimmed_reads": trimmed,
@@ -139,12 +200,14 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate")
     validate.add_argument("--catalog", type=Path, required=True)
+    validate.add_argument("--reference", type=Path)
     get = sub.add_parser("get")
     get.add_argument("--catalog", type=Path, required=True)
     get.add_argument("--profile", required=True)
     get.add_argument("--field", choices=sorted(REQUIRED), required=True)
     report = sub.add_parser("summarize")
     report.add_argument("--catalog", type=Path, required=True)
+    report.add_argument("--reference", type=Path, required=True)
     report.add_argument("--profile", required=True)
     report.add_argument("--fastp-json", type=Path, required=True)
     report.add_argument("--sample", required=True)
@@ -152,7 +215,10 @@ def main() -> None:
     args = parser.parse_args()
     rows = load_catalog(args.catalog)
     if args.command == "validate":
-        print(f"validated {len(rows)} adapter profiles")
+        message = f"validated {len(rows)} adapter profiles"
+        if args.reference:
+            message += f" and {len(load_reference(args.reference))} reference sequences"
+        print(message)
     elif args.command == "get":
         print(profile(rows, args.profile)[args.field])
     else:

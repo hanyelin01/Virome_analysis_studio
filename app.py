@@ -37,6 +37,12 @@ ADAPTER_CATALOG = Path(
     SETTINGS.get("ADAPTER_CATALOG", str(PIPELINE_HOME / "config" / "adapter_catalog.tsv"))
     .replace("$PIPELINE_HOME", str(PIPELINE_HOME))
 )
+ADAPTER_SEQUENCE_REFERENCE = Path(
+    SETTINGS.get(
+        "ADAPTER_SEQUENCE_REFERENCE",
+        str(PIPELINE_HOME / "config" / "adapter_sequence_reference.tsv"),
+    ).replace("$PIPELINE_HOME", str(PIPELINE_HOME))
+)
 
 
 def load_adapter_profiles() -> list[dict[str, str]]:
@@ -48,6 +54,14 @@ def load_adapter_profiles() -> list[dict[str, str]]:
 
 
 ADAPTER_PROFILES = load_adapter_profiles()
+
+
+def load_adapter_reference() -> list[dict[str, str]]:
+    with ADAPTER_SEQUENCE_REFERENCE.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
+ADAPTER_REFERENCE_ROWS = load_adapter_reference()
 
 
 def validate_path(text: str, label: str, *, exists: bool, directory: bool = True) -> Path:
@@ -123,36 +137,39 @@ def show_adapter_evidence(clean_root: Path | None) -> None:
     if clean_root is None or not clean_root.is_dir():
         return
     evidence_files = sorted(clean_root.glob("*/fastp_report/*.adapter_evidence.tsv"))
-    if not evidence_files:
-        return
-    rows: list[dict[str, str]] = []
-    for evidence_file in evidence_files:
-        with evidence_file.open(encoding="utf-8", newline="") as handle:
-            rows.extend(csv.DictReader(handle, delimiter="\t"))
-    st.markdown("<div class='section-title'>接头识别与来源判断</div>", unsafe_allow_html=True)
-    st.caption("“自动识别”来自 fastp 的双端重叠/PE识别；手动方案表示按所选建库序列剪切。来源判断不等同于仅凭序列确定建库试剂盒。")
-    visible = [{
-        "样本": row["sample_id"],
-        "读段": row["read"],
-        "fastp报告序列": row["fastp_reported_sequence"],
-        "目录匹配": row["matched_catalogue_profiles"],
-        "判断": row["source_judgement"],
-        "剪切reads": row["adapter_trimmed_reads"],
-        "剪切比例": row["trimmed_read_fraction"],
-        "来源等级": row["source_level"],
-        "来源": row["source_title"],
-    } for row in rows]
-    st.dataframe(visible, use_container_width=True, hide_index=True)
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=rows[0], delimiter="\t")
-    writer.writeheader()
-    writer.writerows(rows)
-    st.download_button(
-        "下载接头识别证据表",
-        data=buffer.getvalue(),
-        file_name="adapter_evidence.tsv",
-        mime="text/tab-separated-values",
-    )
+    scan_files = sorted(clean_root.glob("*/fastp_report/*.adapter_reference_scan.tsv"))
+    if evidence_files or scan_files:
+        st.markdown("<div class='section-title'>接头识别与来源判断</div>", unsafe_allow_html=True)
+    if evidence_files:
+        rows: list[dict[str, str]] = []
+        for evidence_file in evidence_files:
+            with evidence_file.open(encoding="utf-8", newline="") as handle:
+                rows.extend(csv.DictReader(handle, delimiter="\t"))
+        st.caption("“自动识别”来自 fastp 的双端重叠/PE识别；手动方案表示按所选建库序列剪切。来源判断不等同于仅凭序列确定建库试剂盒。")
+        visible = [{
+            "样本": row["sample_id"], "读段": row["read"],
+            "fastp报告序列": row["fastp_reported_sequence"],
+            "目录匹配": row["matched_catalogue_profiles"],
+            "参考序列匹配": row.get("matched_reference_sequences", "旧版证据表未提供"),
+            "判断": row["source_judgement"], "剪切reads": row["adapter_trimmed_reads"],
+            "剪切比例": row["trimmed_read_fraction"], "来源等级": row["source_level"],
+            "来源": row["source_title"],
+        } for row in rows]
+        st.dataframe(visible, use_container_width=True, hide_index=True)
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=rows[0], delimiter="\t")
+        writer.writeheader()
+        writer.writerows(rows)
+        st.download_button("下载接头识别证据表", data=buffer.getvalue(), file_name="adapter_evidence.tsv", mime="text/tab-separated-values")
+    if scan_files:
+        scan_rows: list[dict[str, str]] = []
+        for scan_file in scan_files:
+            with scan_file.open(encoding="utf-8", newline="") as handle:
+                scan_rows.extend(csv.DictReader(handle, delimiter="\t"))
+        if scan_rows:
+            st.markdown("**原始 reads 参考序列抽样命中**")
+            st.caption("精确匹配用于发现SISPA标签、完整PCR引物和flow-cell伪影；参考或拒绝条目不会自动参与剪切。")
+            st.dataframe(scan_rows, use_container_width=True, hide_index=True)
 
 
 def show_report_center(report_root: Path | None) -> None:
@@ -302,6 +319,8 @@ try:
             )
             with st.expander("查看接头目录与维护信息"):
                 st.dataframe(ADAPTER_PROFILES, use_container_width=True, hide_index=True)
+                st.markdown("**识别参考序列（不会自动作为剪切方案）**")
+                st.dataframe(ADAPTER_REFERENCE_ROWS, use_container_width=True, hide_index=True)
         st.info(f"fastp 峰值：{qc_parallel * qc_threads if needs_raw else 0} 线程；MEGAHIT 峰值：{asm_parallel * asm_threads if needs_assembly else 0} 线程。")
         raw = validate_path(raw_text, "rawdata 路径", exists=True) if needs_raw else None
         clean = validate_path(clean_text, "cleandata 路径", exists=task == "assembly_only")

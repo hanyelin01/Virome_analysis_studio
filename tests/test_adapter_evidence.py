@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "helpers" / "adapter_evidence.py"
 CATALOG = ROOT / "config" / "adapter_catalog.tsv"
+REFERENCE = ROOT / "config" / "adapter_sequence_reference.tsv"
 
 
 def load_module():
@@ -28,6 +29,12 @@ class AdapterEvidenceTest(unittest.TestCase):
         self.assertTrue(any(
             row["profile_id"] == "illumina_truseq_nebnext" for row in rows
         ))
+        reference = load_module().load_reference(REFERENCE)
+        self.assertEqual(len(reference), 16)
+        self.assertEqual(
+            next(row for row in reference if row["sequence_id"] == "sispa_gct_unverified")["status"],
+            "rejected",
+        )
 
     def test_exact_sequence_matches_catalogue(self):
         module = load_module()
@@ -54,6 +61,7 @@ class AdapterEvidenceTest(unittest.TestCase):
             subprocess.run([
                 sys.executable, str(SCRIPT), "summarize",
                 "--catalog", str(CATALOG), "--profile", "auto",
+                "--reference", str(REFERENCE),
                 "--fastp-json", str(report), "--sample", "S01", "--output", str(output),
             ], check=True)
             with output.open(encoding="utf-8", newline="") as handle:
@@ -80,6 +88,7 @@ class AdapterEvidenceTest(unittest.TestCase):
             subprocess.run([
                 sys.executable, str(SCRIPT), "summarize",
                 "--catalog", str(CATALOG),
+                "--reference", str(REFERENCE),
                 "--profile", "illumina_truseq_nebnext",
                 "--fastp-json", str(report), "--sample", "S02", "--output", str(output),
             ], check=True)

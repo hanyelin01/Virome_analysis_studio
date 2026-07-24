@@ -2,7 +2,7 @@
 
 ## 设计原则
 
-`config/adapter_catalog.tsv` 是唯一受版本控制的接头资料源。网页、fastp 调度和结果解释均读取同一文件。默认使用 `auto`：fastp 先利用双端重叠剪切，并启用 PE 接头自动识别。只有实验记录明确给出建库试剂盒时，才选择一个手动方案。
+`config/adapter_catalog.tsv` 保存能够参与 fastp 执行的建库方案；`config/adapter_sequence_reference.tsv` 保存完整PCR引物、flow-cell伪影、反向互补序列及SISPA等协议特异引物。网页、fastp 调度和结果解释读取同一组版本化文件。默认使用 `auto`：fastp 先利用双端重叠剪切，并启用 PE 接头自动识别。只有实验记录明确给出建库试剂盒时，才选择一个手动方案。
 
 不要为了“覆盖更多接头”把所有序列同时传给 `--adapter_fasta`。不相关序列会扩大误匹配和误剪切范围。index、barcode、UMI、完整寡核苷酸结构也不能未经方向换算就当成 read-through trimming sequence。
 
@@ -16,7 +16,8 @@
 
    ```bash
    python3 scripts/helpers/adapter_evidence.py validate \
-     --catalog config/adapter_catalog.tsv
+     --catalog config/adapter_catalog.tsv \
+     --reference config/adapter_sequence_reference.tsv
    python3 -m pytest -q
    ```
 
@@ -48,7 +49,9 @@
 .contig_pipeline/runs/<run_id>/
 ├── parameters.env
 ├── adapter_catalog.snapshot.tsv
-└── adapter_catalog.snapshot.sha256
+├── adapter_catalog.snapshot.sha256
+├── adapter_sequence_reference.snapshot.tsv
+└── adapter_sequence_reference.snapshot.sha256
 ```
 
 每个样本保存：
@@ -57,10 +60,13 @@
 cleandata/<sample>/fastp_report/
 ├── <sample>.fastp.html
 ├── <sample>.fastp.json
-└── <sample>.adapter_evidence.tsv
+├── <sample>.adapter_evidence.tsv
+└── <sample>.adapter_reference_scan.tsv
 ```
 
 证据表区分 `fastp_auto_detection` 与 `configured_fallback_plus_fastp_auto`。后者表示已知接头被配置为双端重叠失败时的后备序列，同时仍启用 PE 自动识别。序列匹配只能说明它与某接头家族一致，不能单凭 FASTQ 反推出唯一试剂盒。
+
+参考扫描默认抽取每个 mate 的前 100,000 条 reads，对版本化参考序列做精确匹配并分别记录 5′、3′和任意位置命中。该扫描用于发现协议特异标签和伪影，不会把 `reference_only`、`protocol_specific` 或 `do_not_use` 条目自动传给 fastp。
 
 ## 发布、校正与回退
 
