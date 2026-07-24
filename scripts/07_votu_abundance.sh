@@ -23,15 +23,17 @@ require_command vclust; require_command coverm; require_command minimap2; requir
 
 OUT="$OUTPUT_DIR/04_sample_votu"
 SPLIT_SUMMARY="$OUT/split_summary.tsv"
+SPLIT_COMPLETE="$OUT/split_complete.json"
 STATUS="$OUT/sample_status.tsv"
 PYTHON_EXEC="${CONTIG_PIPELINE_PYTHON:-$PIPELINE_HOME/.venv/bin/python}"
 [[ -x $PYTHON_EXEC ]] || die 127 "Pipeline Python interpreter is unavailable: $PYTHON_EXEC"
-if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT" && (( ! RESUME )) && [[ ! -s $SPLIT_SUMMARY ]]; then
+if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT" && (( ! RESUME )); then
   die 4 "Sample-local vOTU output conflicts with an existing directory: $OUT"
 fi
 mkdir -p "$OUT"
 
-if [[ ! -s $SPLIT_SUMMARY ]]; then
+if [[ ! -s $SPLIT_COMPLETE ]]; then
+  [[ ! -e $SPLIT_SUMMARY ]] || echo "[INFO] Previous candidate split did not complete; rebuilding it"
   "$PYTHON_EXEC" "$SCRIPT_DIR/helpers/split_viral_candidates_by_sample.py" \
     --input "$INPUT" \
     --provenance "$OUTPUT_DIR/01_prepared_contigs/contig_provenance.tsv" \
@@ -41,7 +43,7 @@ if [[ ! -s $SPLIT_SUMMARY ]]; then
     --output-root "$OUT" \
     --min-length "$VOTU_POST_CHECKV_MIN_LEN"
 else
-  echo "[INFO] Sample candidate split already exists; skipped"
+  echo "[INFO] Completed sample candidate split already exists; skipped"
 fi
 
 printf 'sample_id\tstatus\tmessage\n' > "$STATUS"

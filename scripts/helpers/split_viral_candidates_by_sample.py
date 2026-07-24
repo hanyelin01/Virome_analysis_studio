@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -37,6 +39,20 @@ def lookup(table: dict[str, dict[str, str]], sequence_id: str) -> dict[str, str]
     return table.get(sequence_id) or table.get(sequence_id.split("|", 1)[0]) or {}
 
 
+def resolve_provenance(
+    table: dict[str, dict[str, str]], sequence_id: str
+) -> tuple[str, dict[str, str], str]:
+    """Resolve exact IDs first, then CheckV's provirus child suffix (_1, _2, ...)."""
+    direct_id = sequence_id.split("|", 1)[0]
+    if direct_id in table:
+        return direct_id, table[direct_id], "exact"
+    match = re.fullmatch(r"(.+)_([1-9][0-9]*)", direct_id)
+    if match and match.group(1) in table:
+        parent_id = match.group(1)
+        return parent_id, table[parent_id], "checkv_provirus_suffix"
+    return "", {}, "unresolved"
+
+
 def write_fasta(handle, sequence_id: str, sequence: str) -> None:
     handle.write(f">{sequence_id}\n")
     for start in range(0, len(sequence), 80):
@@ -65,7 +81,8 @@ def main() -> None:
     metadata_handles: dict[str, object] = {}
     writers: dict[str, csv.DictWriter] = {}
     fieldnames = [
-        "sequence_id", "sample_id", "length", "checkv_quality", "miuvig_quality",
+        "sequence_id", "provenance_sequence_id", "provenance_match", "sample_id",
+        "length", "checkv_quality", "miuvig_quality",
         "completeness", "contamination", "taxonomy", "virus_score",
     ]
     try:
@@ -82,19 +99,31 @@ def main() -> None:
         unassigned: list[dict[str, str]] = []
         for header, sequence in fasta_records(args.input):
             sequence_id = header.split()[0]
-            source = lookup(provenance, sequence_id)
+            provenance_id, source, provenance_match = resolve_provenance(
+                provenance, sequence_id
+            )
+            if provenance_match == "checkv_provirus_suffix":
+                parent_quality = lookup(quality, provenance_id)
+                if parent_quality.get("provirus", "").strip().lower() not in {"yes", "true"}:
+                    provenance_id, source, provenance_match = "", {}, "unresolved"
             sample = source.get("sample_id", "")
             if sample not in writers:
-                unassigned.append({"sequence_id": sequence_id, "length": str(len(sequence)), "reason": "missing provenance or sample not in manifest"})
+                unassigned.append({
+                    "sequence_id": sequence_id,
+                    "length": str(len(sequence)),
+                    "reason": "missing exact/CheckV-parent provenance or sample not in manifest",
+                })
                 continue
             if len(sequence) < args.min_length:
                 short[sample] += 1
                 continue
-            quality_row = lookup(quality, sequence_id)
-            taxonomy_row = lookup(taxonomy, sequence_id)
+            quality_row = lookup(quality, provenance_id)
+            taxonomy_row = lookup(taxonomy, provenance_id)
             write_fasta(fasta_handles[sample], sequence_id, sequence)
             writers[sample].writerow({
                 "sequence_id": sequence_id,
+                "provenance_sequence_id": provenance_id,
+                "provenance_match": provenance_match,
                 "sample_id": sample,
                 "length": len(sequence),
                 "checkv_quality": quality_row.get("checkv_quality", "Not-determined"),
@@ -122,6 +151,16 @@ def main() -> None:
         writer.writerows(unassigned)
     if unassigned:
         raise SystemExit(f"{len(unassigned)} CheckV candidates could not be restored to a manifest sample; inspect unassigned_candidates.tsv")
+    completion = {
+        "schema_version": 1,
+        "manifest_sample_count": len(samples),
+        "kept_candidate_count": sum(kept.values()),
+        "excluded_short_candidate_count": sum(short.values()),
+        "unassigned_candidate_count": 0,
+    }
+    (args.output_root / "split_complete.json").write_text(
+        json.dumps(completion, indent=2) + "\n", encoding="utf-8"
+    )
     print(f"[INFO] Restored {sum(kept.values())} CheckV candidates to {len(samples)} sample directories")
 
 
