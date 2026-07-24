@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -25,20 +27,84 @@ def fasta_records(path: Path):
         yield header, "".join(parts)
 
 
+def manifest_assemblies(manifest: Path, assembly_root: Path) -> list[tuple[str, Path]]:
+    root = assembly_root.resolve()
+    with manifest.open(encoding="utf-8", errors="replace", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    if not rows or "sample_id" not in rows[0] or "assembly_dir" not in rows[0]:
+        raise SystemExit(f"Manifest lacks sample_id/assembly_dir rows: {manifest}")
+    result: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for row in rows:
+        sample = row["sample_id"].strip()
+        assembly_dir = Path(row["assembly_dir"]).resolve()
+        if not sample or sample in seen:
+            raise SystemExit(f"Manifest contains an empty or duplicate sample ID: {sample!r}")
+        seen.add(sample)
+        if assembly_dir != (root / sample).resolve():
+            raise SystemExit(
+                f"{sample}: manifest assembly path is inconsistent with the selected assembly root: {assembly_dir}"
+            )
+        fasta = assembly_dir / "final.contigs.fa"
+        if not fasta.is_file():
+            raise SystemExit(f"{sample}: final.contigs.fa is missing: {fasta}")
+        result.append((sample, fasta))
+    return result
+
+
+def input_fingerprint(assemblies: list[tuple[str, Path]], min_length: int) -> dict[str, object]:
+    inputs = []
+    for sample, path in assemblies:
+        stat = path.stat()
+        inputs.append({
+            "sample_id": sample,
+            "assembly_fasta": str(path),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        })
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "min_length": min_length,
+        "inputs": inputs,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    payload["fingerprint_sha256"] = hashlib.sha256(canonical).hexdigest()
+    return payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assembly-dir", required=True, type=Path)
+    parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--min-length", required=True, type=int)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     fasta_out = args.output_dir / "merged_assembled_contigs.fna"
     provenance_out = args.output_dir / "contig_provenance.tsv"
     summary_out = args.output_dir / "contig_preparation_summary.tsv"
-    assemblies = sorted(args.assembly_dir.glob("*/final.contigs.fa"))
-    if not assemblies:
-        raise SystemExit(f"No final.contigs.fa files found under: {args.assembly_dir}")
+    fingerprint_out = args.output_dir / "preparation_inputs.json"
+    assemblies = manifest_assemblies(args.manifest, args.assembly_dir)
+    expected_fingerprint = input_fingerprint(assemblies, args.min_length)
+    required_outputs = (fasta_out, provenance_out, summary_out, fingerprint_out)
+    if args.resume and all(path.is_file() and path.stat().st_size > 0 for path in required_outputs):
+        existing = json.loads(fingerprint_out.read_text(encoding="utf-8"))
+        if existing == expected_fingerprint:
+            print("[INFO] Prepared contigs match the current manifest and parameters; skipped")
+            return
+        raise SystemExit(
+            "Existing prepared contigs were created from different samples, assembly files, or "
+            "minimum-length settings. Use a new report output directory."
+        )
+    if args.resume and any(path.exists() for path in required_outputs):
+        raise SystemExit(
+            "Existing prepared-contig output predates manifest fingerprinting or is incomplete; "
+            "it cannot be safely resumed. Use a new report output directory."
+        )
+    if any(path.exists() for path in required_outputs):
+        raise SystemExit(f"Prepared-contig output already exists: {args.output_dir}")
 
     used: set[str] = set()
     total_records = kept_records = 0
@@ -46,8 +112,7 @@ def main() -> None:
     with fasta_out.open("w", encoding="utf-8") as fasta, provenance_out.open("w", newline="", encoding="utf-8") as prov:
         writer = csv.DictWriter(prov, fieldnames=["sequence_id", "sample_id", "original_contig_id", "length"] , delimiter="\t")
         writer.writeheader()
-        for assembly in assemblies:
-            sample = assembly.parent.name
+        for sample, assembly in assemblies:
             sample_total = sample_kept = 0
             for original_header, sequence in fasta_records(assembly):
                 total_records += 1
@@ -73,6 +138,10 @@ def main() -> None:
         writer.writerows(summaries)
     if kept_records == 0:
         raise SystemExit(f"No contigs >= {args.min_length} bp were retained")
+    fingerprint_out.write_text(
+        json.dumps(expected_fingerprint, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"[INFO] Prepared {kept_records}/{total_records} contigs from {len(assemblies)} sample(s): {fasta_out}")
 
 

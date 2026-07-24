@@ -64,7 +64,7 @@ on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] V
 trap on_error ERR
 
 run_step preflight bash "$SCRIPT_DIR/00_preflight.sh" --task assembly_only --cleandata-dir "$CLEAN_DIR" --clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST"
-prepare=(bash "$SCRIPT_DIR/04_prepare_viral_contigs.sh" --assembly-dir "$ASSEMBLY_DIR" --output-dir "$OUTPUT_DIR" --min-contig-length "$MIN_LENGTH"); (( RESUME )) && prepare+=(--resume); run_step prepare_contigs "${prepare[@]}"
+prepare=(bash "$SCRIPT_DIR/04_prepare_viral_contigs.sh" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST" --output-dir "$OUTPUT_DIR" --min-contig-length "$MIN_LENGTH"); (( RESUME )) && prepare+=(--resume); run_step prepare_contigs "${prepare[@]}"
 genomad=(bash "$SCRIPT_DIR/05_run_genomad.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --database "$GENOMAD_DB" --threads "$THREADS"); (( RESUME )) && genomad+=(--resume); run_step genomad "${genomad[@]}"
 CANDIDATE_INPUT="$OUTPUT_DIR/02_genomad/viral_candidates_genomad.fna"
 if (( ENABLE_VIRSORTER2 )); then

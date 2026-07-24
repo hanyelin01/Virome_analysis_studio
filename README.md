@@ -78,6 +78,8 @@ assembly/<sample>/final.contigs.fa
 
 网页提交后，pipeline 在 Linux 后台运行；刷新或重新打开浏览器不会中止它。页面会从 `.contig_pipeline/runs/` 读取当前输出位置最近一次任务的持久化状态和末尾日志；点击“刷新任务状态”即可更新显示。
 
+病毒报告的assembly输入严格受本次样本manifest限制；`--resume`会核对准备阶段的样本、输入文件元数据和参数指纹，不会复用其他批次的旧结果。历史报告目录迁移说明见 [UPGRADE_MANIFEST_SCOPE_FIX.md](UPGRADE_MANIFEST_SCOPE_FIX.md)。
+
 ## 识别规则与限制
 
 PE 识别 `_R1_001/_R2_001`、`_R1/_R2`、`_1/_2`，以及标准 clean 命名 `_R1.clean/_R2.clean`；扩展名可为 `.fq.gz` 或 `.fastq.gz`。每个样本必须恰有一对；多条 lane 应先合并或拆分。
