@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import csv
+import io
 import shlex
 import subprocess
 from pathlib import Path
@@ -31,6 +33,21 @@ SETTINGS = load_settings()
 ALLOWED_ROOTS = [Path(item).resolve() for item in SETTINGS.get("ALLOWED_DATA_ROOTS", "").split(":") if item]
 MAX_TOTAL_THREADS = int(SETTINGS.get("MAX_TOTAL_THREADS", "96"))
 MAX_VIRAL_THREADS = int(SETTINGS.get("MAX_THREADS_PER_VIRAL_TOOL", "32"))
+ADAPTER_CATALOG = Path(
+    SETTINGS.get("ADAPTER_CATALOG", str(PIPELINE_HOME / "config" / "adapter_catalog.tsv"))
+    .replace("$PIPELINE_HOME", str(PIPELINE_HOME))
+)
+
+
+def load_adapter_profiles() -> list[dict[str, str]]:
+    with ADAPTER_CATALOG.open(encoding="utf-8", newline="") as handle:
+        return [
+            row for row in csv.DictReader(handle, delimiter="\t")
+            if row.get("status") in {"active", "review"}
+        ]
+
+
+ADAPTER_PROFILES = load_adapter_profiles()
 
 
 def validate_path(text: str, label: str, *, exists: bool, directory: bool = True) -> Path:
@@ -100,6 +117,42 @@ def show_status(state_base: Path | None) -> None:
         st.info(f"状态：{status or 'STARTING'}；运行编号：{run.name}")
     st.caption(f"运行目录：{run}")
     st.code(tail(run / "pipeline.log"), language="text")
+
+
+def show_adapter_evidence(clean_root: Path | None) -> None:
+    if clean_root is None or not clean_root.is_dir():
+        return
+    evidence_files = sorted(clean_root.glob("*/fastp_report/*.adapter_evidence.tsv"))
+    if not evidence_files:
+        return
+    rows: list[dict[str, str]] = []
+    for evidence_file in evidence_files:
+        with evidence_file.open(encoding="utf-8", newline="") as handle:
+            rows.extend(csv.DictReader(handle, delimiter="\t"))
+    st.markdown("<div class='section-title'>接头识别与来源判断</div>", unsafe_allow_html=True)
+    st.caption("“自动识别”来自 fastp 的双端重叠/PE识别；手动方案表示按所选建库序列剪切。来源判断不等同于仅凭序列确定建库试剂盒。")
+    visible = [{
+        "样本": row["sample_id"],
+        "读段": row["read"],
+        "fastp报告序列": row["fastp_reported_sequence"],
+        "目录匹配": row["matched_catalogue_profiles"],
+        "判断": row["source_judgement"],
+        "剪切reads": row["adapter_trimmed_reads"],
+        "剪切比例": row["trimmed_read_fraction"],
+        "来源等级": row["source_level"],
+        "来源": row["source_title"],
+    } for row in rows]
+    st.dataframe(visible, use_container_width=True, hide_index=True)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=rows[0], delimiter="\t")
+    writer.writeheader()
+    writer.writerows(rows)
+    st.download_button(
+        "下载接头识别证据表",
+        data=buffer.getvalue(),
+        file_name="adapter_evidence.tsv",
+        mime="text/tab-separated-values",
+    )
 
 
 def show_report_center(report_root: Path | None) -> None:
@@ -190,6 +243,7 @@ st.markdown(f"<div class='task-note'>{task_copy[task]}</div>", unsafe_allow_html
 
 layout_labels = {"每个样本一个子文件夹": "sample_subdirs", "所有 FASTQ 位于同一文件夹": "flat"}
 state_base: Path | None = None
+adapter_evidence_root: Path | None = None
 command: list[str] | None = None
 
 try:
@@ -223,16 +277,42 @@ try:
         with c3: asm_parallel = st.number_input("MEGAHIT 并发样本数", 1, 32, 2, disabled=not needs_assembly)
         with c4: asm_threads = st.number_input("MEGAHIT 每样本线程", 1, 256, 30, disabled=not needs_assembly)
         min_len = st.number_input("最短 contig 长度", 1, 100000, 40, disabled=not needs_assembly)
+        adapter_profile = SETTINGS.get("FASTP_DEFAULT_ADAPTER_PROFILE", "auto")
+        if needs_raw:
+            st.markdown("<div class='section-title'>去接头策略</div>", unsafe_allow_html=True)
+            profile_by_label = {
+                f"{row['display_name']}｜{row['source_level']}": row for row in ADAPTER_PROFILES
+            }
+            selected_label = st.selectbox(
+                "建库接头方案",
+                list(profile_by_label),
+                help="建库类型未知时请选择自动识别。手动方案只应在实验记录能够确认建库试剂盒时使用。",
+            )
+            selected_adapter = profile_by_label[selected_label]
+            adapter_profile = selected_adapter["profile_id"]
+            if selected_adapter["r1_sequence"]:
+                st.code(
+                    f"R1: {selected_adapter['r1_sequence']}\n"
+                    f"R2: {selected_adapter['r2_sequence']}",
+                    language="text",
+                )
+            st.caption(
+                f"来源：{selected_adapter['source_title']}；核验日期："
+                f"{selected_adapter['verified_on']}；状态：{selected_adapter['status']}"
+            )
+            with st.expander("查看接头目录与维护信息"):
+                st.dataframe(ADAPTER_PROFILES, use_container_width=True, hide_index=True)
         st.info(f"fastp 峰值：{qc_parallel * qc_threads if needs_raw else 0} 线程；MEGAHIT 峰值：{asm_parallel * asm_threads if needs_assembly else 0} 线程。")
         raw = validate_path(raw_text, "rawdata 路径", exists=True) if needs_raw else None
         clean = validate_path(clean_text, "cleandata 路径", exists=task == "assembly_only")
         assembly = validate_path(assembly_text, "assembly 输出路径", exists=False) if needs_assembly else None
         if needs_raw and qc_parallel * qc_threads > MAX_TOTAL_THREADS: raise ValueError("fastp 总线程数超过配置上限。")
         if needs_assembly and asm_parallel * asm_threads > MAX_TOTAL_THREADS: raise ValueError("MEGAHIT 总线程数超过配置上限。")
-        command = [str(PIPELINE_SCRIPT), "--task", task, "--cleandata-dir", str(clean), "--qc-parallel", str(qc_parallel), "--qc-threads", str(qc_threads), "--assembly-parallel", str(asm_parallel), "--assembly-threads", str(asm_threads), "--min-contig-len", str(min_len)]
+        command = [str(PIPELINE_SCRIPT), "--task", task, "--cleandata-dir", str(clean), "--qc-parallel", str(qc_parallel), "--qc-threads", str(qc_threads), "--assembly-parallel", str(asm_parallel), "--assembly-threads", str(asm_threads), "--adapter-profile", adapter_profile, "--min-contig-len", str(min_len)]
         if raw: command += ["--rawdata-dir", str(raw), "--raw-layout", raw_layout]
         if assembly: command += ["--clean-layout", clean_layout, "--read-type", read_type, "--assembly-dir", str(assembly)]
         state_base = assembly if assembly else clean
+        adapter_evidence_root = clean if needs_raw else None
 
     elif task == "viral_report":
         with st.container(border=True):
@@ -317,5 +397,6 @@ except ValueError as error:
     st.info(str(error))
 
 show_status(state_base)
+show_adapter_evidence(adapter_evidence_root)
 if task == "viral_report":
     show_report_center(state_base)

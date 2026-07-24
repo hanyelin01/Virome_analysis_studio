@@ -10,6 +10,8 @@
 - `contigs + cleandata → 病毒多样性报告`：geNomad 病毒识别、CheckV 质量评估、CoverM vOTU 去冗余与 reads 回帖、中文 HTML 报告；VirSorter2 可选交叉验证。
 - `DIAMOND 精细注释`：使用已有 `viral_report` 中 CheckV 筛选的候选 contigs，或用户提供的单个/多个 FASTA；支持完整 NR 库的病毒 TaxID 10239 过滤、无分类过滤或自定义 TaxID，并可生成 DAA、MEGAN RMA6、DIAMOND outfmt 6 和 TaxonKit LCA 注释表。
 
+fastp 去接头默认使用双端重叠与 PE 自动识别；网页也可在实验记录明确时选择版本化的建库接头方案。每个样本会保存 fastp 报告、识别序列、目录匹配、来源等级和接头目录哈希。接头目录的审核、维护和回退规则见 [ADAPTER_CATALOG_MAINTENANCE.md](ADAPTER_CATALOG_MAINTENANCE.md)。
+
 ## 安装
 
 将该目录复制到 Linux（例如 `/opt/contig_pipeline`）。安装前必须使用 Python 3.8+（推荐 Conda Python 3.10）；完整故障处理与部署命令见 [DEPLOYMENT.md](DEPLOYMENT.md)。执行：

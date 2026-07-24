@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 .venv/
 config/pipeline.env
+logs/
+.tmp_report_test/
+.tmp_sample_report_test/

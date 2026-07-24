@@ -7,15 +7,15 @@ Usage: run_pipeline.sh --task qc_only|assembly_only|full --cleandata-dir PATH
   [--rawdata-dir PATH --raw-layout sample_subdirs|flat]
   [--clean-layout sample_subdirs|flat --read-type pe|se --assembly-dir PATH]
   [--qc-parallel N --qc-threads N --assembly-parallel N --assembly-threads N]
-  [--min-contig-len N] [--resume]
+  [--adapter-profile ID] [--min-contig-len N] [--resume]
 EOF
 }
-TASK='' RAW_DIR='' RAW_LAYOUT='' CLEAN_DIR='' CLEAN_LAYOUT='' READ_TYPE='' ASSEMBLY_DIR='' QC_PARALLEL=4 QC_THREADS=8 ASM_PARALLEL=2 ASM_THREADS=30 MINLEN=40 RESUME=0
+TASK='' RAW_DIR='' RAW_LAYOUT='' CLEAN_DIR='' CLEAN_LAYOUT='' READ_TYPE='' ASSEMBLY_DIR='' QC_PARALLEL=4 QC_THREADS=8 ASM_PARALLEL=2 ASM_THREADS=30 MINLEN=40 ADAPTER_PROFILE=$FASTP_DEFAULT_ADAPTER_PROFILE RESUME=0
 while (($#)); do
   case "$1" in
-    --task|--rawdata-dir|--raw-layout|--cleandata-dir|--clean-layout|--read-type|--assembly-dir|--qc-parallel|--qc-threads|--assembly-parallel|--assembly-threads|--min-contig-len)
+    --task|--rawdata-dir|--raw-layout|--cleandata-dir|--clean-layout|--read-type|--assembly-dir|--qc-parallel|--qc-threads|--assembly-parallel|--assembly-threads|--adapter-profile|--min-contig-len)
       (($#>=2)) || die 2 "Missing value for $1"
-      case "$1" in --task) TASK=$2;; --rawdata-dir) RAW_DIR=$2;; --raw-layout) RAW_LAYOUT=$2;; --cleandata-dir) CLEAN_DIR=$2;; --clean-layout) CLEAN_LAYOUT=$2;; --read-type) READ_TYPE=$2;; --assembly-dir) ASSEMBLY_DIR=$2;; --qc-parallel) QC_PARALLEL=$2;; --qc-threads) QC_THREADS=$2;; --assembly-parallel) ASM_PARALLEL=$2;; --assembly-threads) ASM_THREADS=$2;; --min-contig-len) MINLEN=$2;; esac
+      case "$1" in --task) TASK=$2;; --rawdata-dir) RAW_DIR=$2;; --raw-layout) RAW_LAYOUT=$2;; --cleandata-dir) CLEAN_DIR=$2;; --clean-layout) CLEAN_LAYOUT=$2;; --read-type) READ_TYPE=$2;; --assembly-dir) ASSEMBLY_DIR=$2;; --qc-parallel) QC_PARALLEL=$2;; --qc-threads) QC_THREADS=$2;; --assembly-parallel) ASM_PARALLEL=$2;; --assembly-threads) ASM_THREADS=$2;; --adapter-profile) ADAPTER_PROFILE=$2;; --min-contig-len) MINLEN=$2;; esac
       shift 2;;
     --resume) RESUME=1; shift;; -h|--help) usage; exit 0;; *) die 2 "Unknown option: $1";;
   esac
@@ -43,7 +43,12 @@ ASSEMBLY_PARALLEL=$ASM_PARALLEL
 ASSEMBLY_THREADS=$ASM_THREADS
 MIN_CONTIG_LEN=$MINLEN
 RESUME=$RESUME
+ADAPTER_PROFILE=$ADAPTER_PROFILE
+ADAPTER_CATALOG=$ADAPTER_CATALOG
 EOF
+python3 "$SCRIPT_DIR/helpers/adapter_evidence.py" validate --catalog "$ADAPTER_CATALOG"
+cp -- "$ADAPTER_CATALOG" "$RUN_DIR/adapter_catalog.snapshot.tsv"
+sha256sum "$RUN_DIR/adapter_catalog.snapshot.tsv" > "$RUN_DIR/adapter_catalog.snapshot.sha256"
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Pipeline stopped; log: $LOG"; exit "$rc"; }
 trap on_error ERR
@@ -52,7 +57,7 @@ preflight=(bash "$SCRIPT_DIR/00_preflight.sh" --task "$TASK" --cleandata-dir "$C
 [[ $TASK == assembly_only || $TASK == full ]] && preflight+=(--clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR")
 run_step preflight "${preflight[@]}"
 if [[ $TASK == qc_only || $TASK == full ]]; then
-  cmd=(bash "$SCRIPT_DIR/01_fastp_pe.sh" --manifest "$MANIFEST" --parallel-samples "$QC_PARALLEL" --threads-per-sample "$QC_THREADS"); (( RESUME )) && cmd+=(--resume); run_step fastp "${cmd[@]}"
+  cmd=(bash "$SCRIPT_DIR/01_fastp_pe.sh" --manifest "$MANIFEST" --parallel-samples "$QC_PARALLEL" --threads-per-sample "$QC_THREADS" --adapter-profile "$ADAPTER_PROFILE" --adapter-catalog "$ADAPTER_CATALOG"); (( RESUME )) && cmd+=(--resume); run_step fastp "${cmd[@]}"
 fi
 if [[ $TASK == assembly_only || $TASK == full ]]; then
   cmd=(bash "$SCRIPT_DIR/02_megahit.sh" --manifest "$MANIFEST" --parallel-samples "$ASM_PARALLEL" --threads-per-sample "$ASM_THREADS" --min-contig-len "$MINLEN"); (( RESUME )) && cmd+=(--resume); run_step megahit "${cmd[@]}"
