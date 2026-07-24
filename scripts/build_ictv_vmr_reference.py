@@ -12,6 +12,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -170,10 +171,12 @@ def chunks(values: list[str], size: int) -> Iterable[list[str]]:
         yield values[index:index + size]
 
 
-def fetch_batch(accessions: list[str], *, email: str, delay: float) -> str:
+def fetch_batch(accessions: list[str], *, email: str, api_key: str, delay: float) -> str:
     parameters = {"db": "nuccore", "id": ",".join(accessions), "rettype": "fasta_cds_aa", "retmode": "text", "tool": "virome_analysis_studio"}
     if email:
         parameters["email"] = email
+    if api_key:
+        parameters["api_key"] = api_key
     request = Request(f"{EUTILS_EFETCH}?{urlencode(parameters)}", headers={"User-Agent": "ViromeAnalysisStudio/2.0 (ICTV VMR reference builder)"})
     for attempt in range(5):
         try:
@@ -236,6 +239,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True, help="New or resumable VMR build directory")
     parser.add_argument("--version", required=True, help="Pinned ICTV VMR release, e.g. VMR_MSL41.v1.20260721")
     parser.add_argument("--email", default="", help="Optional contact email sent to NCBI E-utilities")
+    parser.add_argument("--api-key", default=os.environ.get("NCBI_API_KEY", ""), help="Optional NCBI API key; prefer NCBI_API_KEY from a private environment file")
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--request-delay", type=float, default=0.34, help="Seconds between successful NCBI requests without an API key")
     parser.add_argument("--resume", action="store_true", help="Reuse successfully downloaded batch FASTA files")
@@ -243,8 +247,9 @@ def main() -> int:
     args = parser.parse_args()
     if not args.vmr_xlsx.is_file():
         raise SystemExit(f"VMR spreadsheet is unavailable: {args.vmr_xlsx}")
-    if args.batch_size < 1 or args.batch_size > 200 or args.request_delay < 0.34:
-        raise SystemExit("batch-size must be 1–200 and request-delay must be at least 0.34 seconds")
+    minimum_delay = 0.11 if args.api_key else 0.34
+    if args.batch_size < 1 or args.batch_size > 200 or args.request_delay < minimum_delay:
+        raise SystemExit(f"batch-size must be 1–200 and request-delay must be at least {minimum_delay:.2f} seconds")
     if args.output_dir.exists() and any(args.output_dir.iterdir()) and not args.resume:
         raise SystemExit(f"Output directory is not empty; use --resume after verifying it: {args.output_dir}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -264,7 +269,7 @@ def main() -> int:
         target = retrieval / f"batch_{index:05d}.faa"
         if target.is_file() and target.stat().st_size and args.resume:
             continue
-        payload = fetch_batch(batch, email=args.email, delay=args.request_delay)
+        payload = fetch_batch(batch, email=args.email, api_key=args.api_key, delay=args.request_delay)
         temporary = target.with_suffix(".faa.partial")
         temporary.write_text(payload, encoding="utf-8")
         temporary.replace(target)
