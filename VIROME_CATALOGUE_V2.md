@@ -74,6 +74,7 @@ bash scripts/build_ictv_reference_db.sh \
 每次首次部署、更新 Conda 环境或更新任一参考库后，先执行只读诊断：
 
 ```bash
+conda activate contig-ui
 python3 scripts/diagnose_virome_environment.py --format text
 python3 scripts/diagnose_virome_environment.py --format json --write virome_catalogue_v2_readiness.json
 ```
@@ -85,6 +86,7 @@ python3 scripts/diagnose_virome_environment.py --format json --write virome_cata
 - 会影响结果的长度、线程、TaxID、e-value、CoverM 阈值和 VirSorter2 配置。
 
 退出码 `0` 表示可以启动（可带警告），退出码 `3` 表示有阻断性问题。诊断不会下载、修改数据库或读取测序数据；它不替代真实小批次验收。
+命令行诊断会检查**当前进程的 PATH**；若未激活 `contig-ui`，缺失工具的结果只说明该终端环境未加载相应 Conda 工具。systemd 部署时，应确保服务文件中的 PATH 同样包含 `contig-ui/bin`。
 
 ## 小型回归测试契约
 
