@@ -169,6 +169,41 @@ def check_command(diagnostics: Diagnostics, check_id: str, label: str, configure
     )
 
 
+def check_virsorter_python_dependency(diagnostics: Diagnostics, configured: str) -> None:
+    """Verify a dependency from the interpreter that runs VirSorter2 itself."""
+    executable = executable_path(configured)
+    if executable is None:
+        return
+    interpreter = Path(executable).parent / "python"
+    if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
+        diagnostics.add(
+            "tool.virsorter2_screed",
+            "tool",
+            "fail",
+            "required",
+            f"无法定位与 VirSorter2 配套的 Python 解释器：{interpreter}。",
+            "将 VIRSORTER_COMMAND 配置为独立环境中的 virsorter 绝对路径，或修复该环境。",
+            str(interpreter),
+        )
+        return
+    try:
+        result = subprocess.run(
+            [str(interpreter), "-c", "import screed; print(screed.__version__)"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=4,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        diagnostics.add("tool.virsorter2_screed", "tool", "fail", "required", f"VirSorter2 依赖检查无法执行：{error}。", "修复 VirSorter2 独立环境后重新诊断。", str(interpreter))
+        return
+    if result.returncode == 0:
+        diagnostics.add("tool.virsorter2_screed", "tool", "pass", "required", "VirSorter2 所需的 screed 包可导入。", value=result.stdout.strip() or "已安装")
+    else:
+        diagnostics.add("tool.virsorter2_screed", "tool", "fail", "required", "VirSorter2 环境缺少所需 Python 包 screed。", "执行 conda install -n virsorter2 -c conda-forge screed，然后重新诊断。", str(interpreter))
+
+
 def check_ictv_metadata(diagnostics: Diagnostics, path: Path | None) -> None:
     if path is None:
         return
@@ -244,6 +279,7 @@ def run(config_path: Path) -> dict[str, object]:
         ("tool.megan_daa2rma", "MEGAN daa2rma", settings.get("MEGAN_DAA2RMA", ""), "在 pipeline.env 中填写可执行的 MEGAN_DAA2RMA 绝对路径，并确认许可证可用。"),
     ]:
         check_command(diagnostics, check_id, label, command, remediation)
+    check_virsorter_python_dependency(diagnostics, settings.get("VIRSORTER_COMMAND", "virsorter"))
 
     genomad = diagnostics.path("reference.genomad", "reference", settings.get("GENOMAD_DB", ""), "dir")
     checkv = diagnostics.path("reference.checkv", "reference", settings.get("CHECKV_DB", ""), "dir")

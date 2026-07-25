@@ -22,6 +22,11 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
             executable = tools / name
             executable.write_text("#!/bin/sh\necho 'test-tool 1.0'\n", encoding="utf-8")
             executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+        # The diagnostic checks the Python interpreter paired with VirSorter2,
+        # rather than the caller's Python environment.
+        virsorter_python = tools / "python"
+        virsorter_python.write_text("#!/bin/sh\necho 'fixture-screed 1.0'\n", encoding="utf-8")
+        virsorter_python.chmod(virsorter_python.stat().st_mode | stat.S_IXUSR)
         references = root / "references"
         for name in ("genomad", "checkv", "taxonkit"):
             (references / name).mkdir(parents=True)
@@ -84,6 +89,7 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
         self.assertEqual(report["status"], "ready")
         checks = {item["check_id"]: item for item in report["checks"]}
         self.assertEqual(checks["tool.virsorter2"]["status"], "pass")
+        self.assertEqual(checks["tool.virsorter2_screed"]["status"], "pass")
         self.assertEqual(checks["reference.ictv_metadata_schema"]["status"], "pass")
         self.assertEqual(checks["parameter.viral_min_contig_len"]["value"], "200")
 
