@@ -104,6 +104,8 @@ launch_megan_background() {
   export AUXILIARY_STATUS_FILE="$status_file" AUXILIARY_PID_FILE="$pid_file"
   setsid bash -c '
     set +e
+    # Do not retain the parent workflow lock after the main analysis exits.
+    exec 9>&-
     "$@"
     rc=$?
     if (( rc == 0 )); then
