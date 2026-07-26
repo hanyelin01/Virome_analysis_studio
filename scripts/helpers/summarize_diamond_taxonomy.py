@@ -4,7 +4,26 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
+
+
+def configure_csv_field_limit() -> None:
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+def display_value(value: str, limit: int = 4096) -> str:
+    """Keep the final report table usable; raw DIAMOND TSV remains complete."""
+    return value if len(value) <= limit else value[:limit] + " [truncated; see raw DIAMOND TSV]"
+
+
+configure_csv_field_limit()
 
 
 def tab_rows(path: Path):
@@ -12,6 +31,14 @@ def tab_rows(path: Path):
         return []
     with path.open(encoding="utf-8", errors="replace", newline="") as handle:
         return list(csv.reader(handle, delimiter="\t"))
+
+
+def best_hit_rows(path: Path):
+    if not path.is_file() or path.stat().st_size == 0:
+        return
+    with path.open(encoding="utf-8", errors="replace", newline="") as handle:
+        for row in csv.reader(handle, delimiter="\t"):
+            yield row
 
 
 def main() -> None:
@@ -24,7 +51,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     best: dict[str, list[str]] = {}
-    for row in tab_rows(args.hits):
+    for row in best_hit_rows(args.hits):
         if len(row) >= 15 and row[0] not in best:
             best[row[0]] = row
     lca: dict[str, list[str]] = {}
@@ -55,7 +82,7 @@ def main() -> None:
                 "best_bitscore": hit[7] if len(hit) > 7 else "",
                 "best_staxids": hit[11] if len(hit) > 11 else "",
                 "best_scientific_names": hit[12] if len(hit) > 12 else "",
-                "best_lineages": hit[14] if len(hit) > 14 else "",
+                "best_lineages": display_value(hit[14]) if len(hit) > 14 else "",
             })
     print(f"[INFO] DIAMOND/TaxonKit annotation table: {args.output}")
 

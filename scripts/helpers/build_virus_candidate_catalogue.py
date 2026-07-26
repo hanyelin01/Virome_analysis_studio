@@ -10,8 +10,23 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+
+def configure_csv_field_limit() -> None:
+    """Allow DIAMOND's potentially long slineages field without overflow."""
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+configure_csv_field_limit()
 
 
 def fasta_records(path: Path):
@@ -50,6 +65,24 @@ def write_fasta(handle, ident: str, sequence: str) -> None:
         handle.write(sequence[offset : offset + 80] + "\n")
 
 
+def diamond_discovery_calls(path: Path, all_contigs: dict[str, str]):
+    """Yield one best DIAMOND discovery call per contig, without loading hits."""
+    seen: set[str] = set()
+    with path.open(encoding="utf-8", errors="replace", newline="") as handle:
+        for row in csv.reader(handle, delimiter="\t"):
+            if len(row) < 8:
+                continue
+            raw_id = row[0].split()[0]
+            if raw_id in seen or raw_id not in all_contigs:
+                continue
+            seen.add(raw_id)
+            yield {
+                "tool": "DIAMOND-NR-virus", "raw_sequence_id": raw_id,
+                "source_sequence_id": raw_id, "sequence": all_contigs[raw_id],
+                "evidence": f"best_bitscore={row[7]};evalue={row[6]}",
+            }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-fasta", required=True, type=Path)
@@ -75,14 +108,7 @@ def main() -> None:
 
     add_fasta_calls(args.genomad_fasta, "geNomad")
     add_fasta_calls(args.virsorter_fasta, "VirSorter2")
-    for row in read_tsv(args.diamond_virus_hits):
-        raw_id = row.get("qseqid", "").split()[0]
-        if raw_id in all_contigs:
-            calls.append({
-                "tool": "DIAMOND-NR-virus", "raw_sequence_id": raw_id,
-                "source_sequence_id": raw_id, "sequence": all_contigs[raw_id],
-                "evidence": f"best_bitscore={row.get('bitscore', '')};evalue={row.get('evalue', '')}",
-            })
+    calls.extend(diamond_discovery_calls(args.diamond_virus_hits, all_contigs))
 
     if not calls:
         raise SystemExit("No discovery calls were supplied by geNomad, VirSorter2, or DIAMOND-NR-virus")

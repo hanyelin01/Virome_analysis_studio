@@ -5,8 +5,22 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import sys
 from collections import OrderedDict
 from pathlib import Path
+
+
+def configure_csv_field_limit() -> None:
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
+configure_csv_field_limit()
 
 
 def main() -> None:
