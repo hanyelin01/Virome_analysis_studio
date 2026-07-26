@@ -94,7 +94,7 @@ def main() -> None:
     known = set(decision)
     args.catalogue_dir.mkdir(parents=True, exist_ok=True); args.sample_dir.mkdir(parents=True, exist_ok=True)
     refs = args.catalogue_dir / "references"; refs.mkdir(exist_ok=True)
-    fields = ["vf_id", "checkv_sequence_id", "parent_vc_id", "length", "decision", "checkv_quality", "completeness", "contamination", "nr_order", "nr_family", "nr_genus", "nr_species", "nr_lca_name", "ictv_reference_id", "ictv_species", "ictv_genus", "ictv_family", "baltimore_group", "ictv_pident", "ictv_alignment_length", "ictv_evalue", "ictv_bitscore"]
+    fields = ["vf_id", "checkv_sequence_id", "parent_vc_id", "source_sample_ids", "source_contig_ids", "length", "decision", "checkv_quality", "completeness", "contamination", "nr_order", "nr_family", "nr_genus", "nr_species", "nr_lca_name", "ictv_reference_id", "ictv_species", "ictv_genus", "ictv_family", "baltimore_group", "ictv_pident", "ictv_alignment_length", "ictv_evalue", "ictv_bitscore"]
     all_rows: list[dict[str, str]] = []
     sequences_by_vf: dict[str, str] = {}
     with (args.catalogue_dir / "VF_catalogue.fna").open("w", encoding="utf-8") as final_fasta, \
@@ -105,7 +105,11 @@ def main() -> None:
             if not vc_id: raise SystemExit(f"Cannot restore CheckV fragment to a VC parent: {checkv_id}")
             q = quality.get(checkv_id) or quality.get(vc_id, {})
             nr = taxonomy.get(vc_id, {}); hit = best_ictv.get(checkv_id, ["", "", "", "", ""]); meta = ictv_meta.get(hit[0], {})
-            row = {"vf_id": vf_id, "checkv_sequence_id": checkv_id, "parent_vc_id": vc_id, "length": str(len(sequence)),
+            sources = by_vc_sources.get(vc_id, [])
+            source_samples = sorted({source.get("sample_id", "") for source in sources if source.get("sample_id", "")})
+            source_contigs = sorted({source.get("source_sequence_id") or f"{source.get('sample_id', '')}__{source.get('original_contig_id', '')}" for source in sources if source.get("source_sequence_id") or source.get("original_contig_id")})
+            row = {"vf_id": vf_id, "checkv_sequence_id": checkv_id, "parent_vc_id": vc_id,
+                   "source_sample_ids": "; ".join(source_samples), "source_contig_ids": "; ".join(source_contigs), "length": str(len(sequence)),
                    "decision": decision[vc_id].get("decision", ""), "checkv_quality": q.get("checkv_quality", "Not-determined"),
                    "completeness": q.get("completeness", "NA"), "contamination": q.get("contamination", "NA"),
                    "nr_order": taxon_at_rank(nr, "order"), "nr_family": taxon_at_rank(nr, "family"),
