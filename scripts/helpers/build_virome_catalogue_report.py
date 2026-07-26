@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import html
+import math
 import re
 from collections import Counter
 from pathlib import Path
@@ -87,11 +88,11 @@ def venn_diagram(discovery: list[dict[str, str]]) -> str:
     total_vc = len(discovery)
     def count(*tools: str) -> int:
         return regions[frozenset(tools)]
-    maximum = max(totals.values(), default=1)
+    maximum = max((math.log10(total + 1) for total in totals.values()), default=1)
     def ellipse(tool: str) -> tuple[float, float]:
-        # All ellipses have the same aspect ratio, so their areas are strictly
-        # proportional to the number of VC records detected by the method.
-        scale = (totals[tool] / maximum) ** 0.5
+        # Equal aspect ratios mean ellipse area is proportional to log10(n+1),
+        # keeping the extreme DIAMOND/small-tool imbalance legible.
+        scale = (math.log10(totals[tool] + 1) / maximum) ** 0.5
         return 465 * scale, 132 * scale
     diamond_rx, diamond_ry = ellipse("DIAMOND-NR-virus")
     virsorter_rx, virsorter_ry = ellipse("VirSorter2")
@@ -100,7 +101,7 @@ def venn_diagram(discovery: list[dict[str, str]]) -> str:
         percentage = totals[tool] / total_vc * 100 if total_vc else 0
         return f"<g transform='translate({x} {y})'><rect width='238' height='54' rx='12' class='venn-key {style}'/><text x='15' y='22' class='venn-key-name'>{esc(tool)}</text><text x='15' y='42' class='venn-key-value'>{totals[tool]:,} VC（{percentage:.2f}%）</text></g>"
     exact = f"DIAMOND 独有 {count('DIAMOND-NR-virus'):,}　·　VirSorter2 独有 {count('VirSorter2'):,}　·　geNomad 独有 {count('geNomad'):,}　·　D∩V {count('DIAMOND-NR-virus', 'VirSorter2'):,}　·　D∩G {count('DIAMOND-NR-virus', 'geNomad'):,}　·　三者共有 {count(*DISCOVERY_TOOLS):,}"
-    return f"""<div class='venn-wrap'><svg class='venn' viewBox='0 0 1160 440' role='img' aria-label='按各方法检出 VC 数量比例缩放的 geNomad、VirSorter2 与 DIAMOND-NR-virus 横向韦恩图'><title>按检出量比例缩放的三工具病毒候选韦恩图</title><desc>椭圆面积按各工具检出的完全去冗余 VC 总数严格成比例。由于 DIAMOND-NR-virus 的检出量远大于另外两种方法，较小集合以放大标注辅助阅读；所有交集数量以底部文字精确列出。</desc><defs><filter id='venn-shadow' x='-20%' y='-20%' width='140%' height='140%'><feDropShadow dx='0' dy='7' stdDeviation='7' flood-opacity='.18'/></filter><linearGradient id='venn-bg' x1='0' x2='1'><stop stop-color='#edf7fb'/><stop offset='1' stop-color='#f4f0fb'/></linearGradient></defs><rect x='16' y='16' width='1128' height='408' rx='26' class='venn-bg'/><g filter='url(#venn-shadow)'><ellipse cx='544' cy='214' rx='{diamond_rx:.2f}' ry='{diamond_ry:.2f}' class='venn-c'/><ellipse cx='1003' cy='252' rx='{virsorter_rx:.2f}' ry='{virsorter_ry:.2f}' class='venn-b'/><ellipse cx='976' cy='199' rx='{genomad_rx:.2f}' ry='{genomad_ry:.2f}' class='venn-a'/></g><text x='544' y='203' class='venn-main-label' text-anchor='middle'>DIAMOND-NR-virus</text><text x='544' y='232' class='venn-main-value' text-anchor='middle'>{totals['DIAMOND-NR-virus']:,} VC</text><path d='M 862 93 L 949 191' class='venn-leader'/><path d='M 902 326 L 986 258' class='venn-leader'/>{legend('geNomad', 60, 60, 'venn-a-key')}{legend('VirSorter2', 60, 306, 'venn-b-key')}<text x='580' y='382' class='venn-exact' text-anchor='middle'>{esc(exact)}</text></svg></div>"""
+    return f"""<div class='venn-wrap'><svg class='venn' viewBox='0 0 1160 440' role='img' aria-label='按 log10 检出 VC 数量缩放的 geNomad、VirSorter2 与 DIAMOND-NR-virus 横向韦恩图'><title>按 log10 检出量缩放的三工具病毒候选韦恩图</title><desc>椭圆面积按 log10(各工具检出 VC 数加一) 缩放，以便展示检出量相差数百倍的方法；工具总数及所有交集数量均为真实计数。</desc><defs><filter id='venn-shadow' x='-20%' y='-20%' width='140%' height='140%'><feDropShadow dx='0' dy='7' stdDeviation='7' flood-opacity='.18'/></filter><linearGradient id='venn-bg' x1='0' x2='1'><stop stop-color='#edf7fb'/><stop offset='1' stop-color='#f4f0fb'/></linearGradient></defs><rect x='16' y='16' width='1128' height='408' rx='26' class='venn-bg'/><g filter='url(#venn-shadow)'><ellipse cx='600' cy='230' rx='{diamond_rx:.2f}' ry='{diamond_ry:.2f}' class='venn-c'/><ellipse cx='770' cy='220' rx='{virsorter_rx:.2f}' ry='{virsorter_ry:.2f}' class='venn-b'/><ellipse cx='470' cy='160' rx='{genomad_rx:.2f}' ry='{genomad_ry:.2f}' class='venn-a'/></g><text x='610' y='290' class='venn-main-label' text-anchor='middle'>DIAMOND-NR-virus</text><text x='610' y='319' class='venn-main-value' text-anchor='middle'>{totals['DIAMOND-NR-virus']:,} VC</text><path d='M 298 55 L 360 128' class='venn-leader'/><path d='M 870 55 L 840 133' class='venn-leader'/>{legend('geNomad', 60, 28, 'venn-a-key')}{legend('VirSorter2', 870, 28, 'venn-b-key')}<text x='580' y='392' class='venn-exact' text-anchor='middle'>{esc(exact)}</text></svg></div>"""
 
 
 def final_evidence_table(final: list[dict[str, str]]) -> str:
@@ -181,7 +182,7 @@ def main() -> None:
     report = document(
         "Virome Catalogue v2",
         f"<h1>病毒全局目录分析报告 <span class='sub'>v2</span></h1><p class='sub'>从 cleandata 组装 contigs 经多工具发现、全 NR 分类、CheckV 和 ICTV 本地参考库精细注释生成。VC 是完全去冗余候选序列，VF 是 CheckV 修正后的最终病毒片段；两者均不是 vOTU 或病毒物种。</p><div class='metrics'>{metric_cards(metrics)}</div>"
-        f"<section class='panel'><h2>① 三工具潜在病毒序列池：按检出量比例缩放的横向韦恩图</h2><p class='sub'>椭圆面积严格按每种方法检出的完全去冗余 VC 总数缩放。由于 DIAMOND-NR-virus 的检出量远大于其他方法，小集合通过引线标签呈现；底部文字给出全部精确交集计数。</p>{venn_diagram(discovery)}</section>"
+        f"<section class='panel'><h2>① 三工具潜在病毒序列池：对数尺度横向韦恩图</h2><p class='sub'>为避免 DIAMOND-NR-virus 的极大检出量压扁其他集合，椭圆面积按 log10(检出 VC 数 + 1) 缩放；工具总数和底部交集数均为真实计数。</p>{venn_diagram(discovery)}</section>"
         f"<div class='grid'><section class='panel'><h2>② 全 NR 证据判定</h2>{table(['结论', 'VC 数'], decision_rows)}<p class='note'>缺少 NR 命中但有至少两种发现方法支持的序列保留为“新颖候选”，不会因数据库中没有近缘参考而被删除。</p></section><section class='panel'><h2>③ CheckV 后病毒科</h2>{table(['病毒科（ICTV 优先）', 'VF 数'], family_rows)}</section></div>"
         f"<div class='grid'><section class='panel'><h2>④ 巴尔的摩分类：按遗传物质类型解释</h2>{table(['巴尔的摩分类（可读名称）', 'VF 数'], baltimore_rows)}<p class='sub'>I–VII 对应病毒基因组类型与复制策略；标签只来自版本化 ICTV 参考元数据。没有明确映射时保留“未分类”。</p></section><section class='panel'><h2>⑤ 单样本报告</h2><p class='sub'>每个样本都有独立的最终 VF、定量和分类结果页面。</p>{table(['样本', '分发 VF', '检出 VF', '报告'], ''.join(sample_rows), '没有可分发的最终病毒片段')}</section></div>"
         f"<section class='panel'><h2>⑥ 最终病毒片段证据表</h2><p class='sub'>来源 contig 为拼接阶段保留的“样本 ID__原始 contig ID”，可通过表头排序、筛选器或关键词快速定位；下载仅导出当前筛选后的记录。</p>{final_evidence_table(final)}<p class='sub'>“ICTV 物种候选”是序列相似性证据，需同时结合覆盖度、支持区域、阴阳性对照及实验背景复核；不构成临床诊断。</p></section>",
