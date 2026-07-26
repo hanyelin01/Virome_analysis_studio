@@ -84,3 +84,23 @@ class FinalFragmentCoverageTest(unittest.TestCase):
             self.assertEqual(result["VF_0000001"], {"vf_id": "VF_0000001", "checkv_quality": "High-quality", "relative_abundance": "17.3", "mean_coverage": "2.5", "covered_bases": "400", "read_count": "12", "detected": "yes"})
             self.assertEqual(result["VF_0000002"]["read_count"], "1")
             self.assertEqual(result["VF_0000002"]["mean_coverage"], "0")
+
+
+class ReportPresentationTest(unittest.TestCase):
+    def test_global_report_explains_baltimore_groups_and_links_sample_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root / "03_candidate_catalogue/VC_discovery_evidence.tsv", "vc_id\tdiscovery_pattern\nVC_1\tgeNomad + VirSorter2\n")
+            write(root / "04_nr_annotation/viral_decision.tsv", "vc_id\tdecision\nVC_1\tconfirmed_viral\n")
+            write(root / "07_final_catalogue/VF_catalogue.tsv", "vf_id\tparent_vc_id\tdecision\tcheckv_quality\tnr_family\tictv_species\tbaltimore_group\tictv_pident\nVF_1\tVC_1\tconfirmed_viral\tHigh-quality\tReoviridae\tExample virus\tIII\t99\n")
+            write(root / "08_sample_results/sample_fragment_presence.tsv", "sample_id\tvf_id\tparent_vc_id\nSample 1\tVF_1\tVC_1\n")
+            write(root / "08_sample_results/Sample 1/viral_fragments_quantified.tsv", "vf_id\tcheckv_quality\tnr_family\tictv_species\tbaltimore_group\trelative_abundance\tmean_coverage\tread_count\tdetected\nVF_1\tHigh-quality\tReoviridae\tExample virus\tIII\t12.5\t3\t7\tyes\n")
+            run("build_virome_catalogue_report.py", "--output-dir", str(root))
+            global_report = (root / "reports/virome_catalogue_dashboard.html").read_text(encoding="utf-8")
+            self.assertIn("III：双链 RNA（dsRNA）病毒", global_report)
+            self.assertIn("打开单样本报告", global_report)
+            sample_pages = list((root / "reports/samples").glob("*.html"))
+            self.assertEqual(len(sample_pages), 1)
+            sample_page = sample_pages[0].read_text(encoding="utf-8")
+            self.assertIn("单样本病毒分析报告", sample_page)
+            self.assertIn("累计原始读数", sample_page)
