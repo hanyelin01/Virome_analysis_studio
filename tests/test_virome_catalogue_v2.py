@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 
@@ -45,7 +47,9 @@ def test_global_catalogue_and_final_fragment_distribution(tmp_path: Path) -> Non
 
     checkv_fasta = write(tmp_path / "checkv.fna", f">{dual['vc_id']}_1\nACGTACGT\n")
     quality = write(tmp_path / "quality.tsv", f"contig_id\tcheckv_quality\tcompleteness\tcontamination\n{dual['vc_id']}\tHigh-quality\t90\t0\n")
-    ictv_hits = write(tmp_path / "ictv.tsv", f"qseqid\tqlen\tqstart\tqend\tpident\tlength\tevalue\tbitscore\tsseqid\n{dual['vc_id']}_1\t8\t1\t8\t99\t8\t1e-20\t90\tREF1\n")
+    # Historical DIAMOND outfmt-6 files do not contain a header; the final
+    # catalogue must remain able to read them after --header was added.
+    ictv_hits = write(tmp_path / "ictv.tsv", f"{dual['vc_id']}_1\t8\t1\t8\t99\t8\t1e-20\t90\tREF1\n")
     ictv_meta = write(tmp_path / "ictv_meta.tsv", "reference_id\tfamily\tgenus\tspecies\tbaltimore_group\nREF1\tCoronaviridae\tBetacoronavirus\tSevere acute respiratory syndrome-related coronavirus\tIV\n")
     manifest = write(tmp_path / "manifest.tsv", "sample_id\nS1\nS2\n")
     final_dir, samples = tmp_path / "final", tmp_path / "samples"
@@ -65,3 +69,18 @@ def test_report_labels_vc_and_vf_not_votu(tmp_path: Path) -> None:
     report = (tmp_path / "reports/virome_catalogue_dashboard.html").read_text(encoding="utf-8")
     assert "全局候选 VC" in report and "最终片段 VF" in report
     assert "vOTU" in report  # Explicit boundary statement, not a result identifier.
+
+
+class FinalFragmentCoverageTest(unittest.TestCase):
+    def test_joins_filtered_metrics_and_raw_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp_path = Path(temporary)
+            annotations = write(tmp_path / "annotations.tsv", "vf_id\tcheckv_quality\nVF_0000001\tHigh-quality\nVF_0000002\tNot-determined\n")
+            coverage = write(tmp_path / "coverage.tsv", "Genome\tMean\tRelative Abundance (%)\tCovered Bases\n/path/VF_0000001.fna\t2.5\t17.3\t400\n")
+            counts = write(tmp_path / "counts.tsv", "Genome\tCount\n/path/VF_0000001.fna\t12\n/path/VF_0000002.fna\t1\n")
+            output = tmp_path / "quantified.tsv"
+            run("join_fragment_coverage.py", "--annotations", str(annotations), "--coverage", str(coverage), "--counts", str(counts), "--output", str(output))
+            result = {row["vf_id"]: row for row in table(output)}
+            self.assertEqual(result["VF_0000001"], {"vf_id": "VF_0000001", "checkv_quality": "High-quality", "relative_abundance": "17.3", "mean_coverage": "2.5", "covered_bases": "400", "read_count": "12", "detected": "yes"})
+            self.assertEqual(result["VF_0000002"]["read_count"], "1")
+            self.assertEqual(result["VF_0000002"]["mean_coverage"], "0")

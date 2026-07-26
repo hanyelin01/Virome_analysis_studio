@@ -31,6 +31,7 @@ mkdir -p "$OUT"
 fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid)
 args=(blastx --db "$ICTV_REFERENCE_DMND" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$ICTV_REFERENCE_MAX_TARGET_SEQS")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && args+=(--more-sensitive)
+args+=(--header)
 printf '%q ' diamond "${args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
 diamond "${args[@]}" >"$OUT/diamond.stdout.log" 2>"$OUT/diamond.stderr.log"
 [[ -f $HITS ]] || die 1 "ICTV DIAMOND did not create a hit table; inspect: $OUT/diamond.stderr.log"

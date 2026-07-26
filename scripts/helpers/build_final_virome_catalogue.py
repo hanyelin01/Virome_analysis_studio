@@ -33,6 +33,20 @@ def write_fasta(handle, ident: str, sequence: str) -> None:
     for offset in range(0, len(sequence), 80): handle.write(sequence[offset:offset + 80] + "\n")
 
 
+def ictv_hit_rows(path: Path):
+    """Read both historical headerless and current headered DIAMOND outfmt-6."""
+    fields = ["qseqid", "qlen", "qstart", "qend", "pident", "length", "evalue", "bitscore", "sseqid"]
+    if not path.is_file() or path.stat().st_size == 0:
+        return
+    with path.open(encoding="utf-8", errors="replace", newline="") as handle:
+        for values in csv.reader(handle, delimiter="\t"):
+            if not values or not values[0].strip() or values[0].strip() == "qseqid":
+                continue
+            if len(values) < len(fields):
+                continue
+            yield dict(zip(fields, values))
+
+
 def parent_vc(ident: str, known: set[str]) -> str:
     ident = ident.split()[0].split("|", 1)[0]
     if ident in known: return ident
@@ -70,8 +84,11 @@ def main() -> None:
         if row.get("vc_id") and row.get("sample_id"): by_vc_sources[row["vc_id"]].append(row)
     ictv_meta = {row.get("reference_id", row.get("ref_id", "")): row for row in read_tsv(args.ictv_metadata)}
     best_ictv: dict[str, list[str]] = {}
-    for row in read_tsv(args.ictv_hits):
-        query = row.get("qseqid", "").split()[0]
+    for row in ictv_hit_rows(args.ictv_hits):
+        raw_query = row.get("qseqid", "").strip()
+        if not raw_query:
+            continue
+        query = raw_query.split()[0]
         if query and query not in best_ictv: best_ictv[query] = [row.get("sseqid", ""), row.get("pident", ""), row.get("length", ""), row.get("evalue", ""), row.get("bitscore", "")]
     samples = [row.get("sample_id", "") for row in read_tsv(args.manifest) if row.get("sample_id")]
     known = set(decision)
