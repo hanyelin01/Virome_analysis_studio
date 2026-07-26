@@ -20,6 +20,7 @@ done
 positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'Invalid DIAMOND thread request'
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 require_command diamond
+require_diamond_version
 OUT="$OUTPUT_DIR/02c_diamond_virus"; HITS="$OUT/nr_virus_hits.tsv"
 if [[ -f $HITS ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND virus-discovery hits already exist; skipped"; exit 0; }
@@ -30,10 +31,9 @@ if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then
   echo "[INFO] Restarting incomplete DIAMOND virus-discovery step"
 fi
 mkdir -p "$OUT"
-# Keep the discovery table compatible with DIAMOND 2.0 as well as newer
-# releases.  TaxonKit derives the lineage later from staxids, so slineages is
-# neither required here nor available in DIAMOND 2.0.x.
-fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid staxids sscinames)
+# DIAMOND 2.2.4+ supplies the source-lineage fields retained for evidence
+# review alongside the TaxonKit-derived classification.
+fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid staxids sscinames slineages)
 args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --taxonlist "$DIAMOND_DEFAULT_TAXONLIST")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && args+=(--more-sensitive)
 printf '%q ' diamond "${args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"

@@ -20,7 +20,8 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
         tools.mkdir()
         for name in ("genomad", "virsorter", "checkv", "diamond", "taxonkit", "coverm", "daa2rma"):
             executable = tools / name
-            executable.write_text("#!/bin/sh\necho 'test-tool 1.0'\n", encoding="utf-8")
+            version = "diamond version 2.2.4" if name == "diamond" else "test-tool 1.0"
+            executable.write_text(f"#!/bin/sh\necho '{version}'\n", encoding="utf-8")
             executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
         # The diagnostic checks the Python interpreter paired with VirSorter2,
         # rather than the caller's Python environment.
@@ -49,6 +50,7 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
                     f"GENOMAD_DB={references / 'genomad'}",
                     f"CHECKV_DB={references / 'checkv'}",
                     f"DIAMOND_NR_DB={references / 'nr.dmnd'}",
+                    "DIAMOND_MIN_VERSION=2.2.4",
                     "DIAMOND_DEFAULT_TAXONLIST=10239",
                     "DIAMOND_EVALUE=1e-5",
                     f"TAXONKIT_DB={references / 'taxonkit'}",
@@ -90,6 +92,7 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
         checks = {item["check_id"]: item for item in report["checks"]}
         self.assertEqual(checks["tool.virsorter2"]["status"], "pass")
         self.assertEqual(checks["tool.virsorter2_screed"]["status"], "pass")
+        self.assertEqual(checks["tool.diamond_version"]["status"], "pass")
         self.assertEqual(checks["reference.ictv_metadata_schema"]["status"], "pass")
         self.assertEqual(checks["parameter.viral_min_contig_len"]["value"], "200")
 

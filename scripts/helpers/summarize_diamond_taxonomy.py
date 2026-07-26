@@ -25,7 +25,7 @@ def main() -> None:
 
     best: dict[str, list[str]] = {}
     for row in tab_rows(args.hits):
-        if len(row) >= 13 and row[0] not in best:
+        if len(row) >= 15 and row[0] not in best:
             best[row[0]] = row
     lca: dict[str, list[str]] = {}
     for row in tab_rows(args.lca):
@@ -55,9 +55,7 @@ def main() -> None:
                 "best_bitscore": hit[7] if len(hit) > 7 else "",
                 "best_staxids": hit[11] if len(hit) > 11 else "",
                 "best_scientific_names": hit[12] if len(hit) > 12 else "",
-                # Lineage is derived by TaxonKit from best_staxids; DIAMOND
-                # 2.0.x does not provide the later slineages output field.
-                "best_lineages": "",
+                "best_lineages": hit[14] if len(hit) > 14 else "",
             })
     print(f"[INFO] DIAMOND/TaxonKit annotation table: {args.output}")
 

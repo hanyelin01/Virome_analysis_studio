@@ -169,6 +169,27 @@ def check_command(diagnostics: Diagnostics, check_id: str, label: str, configure
     )
 
 
+def check_diamond_version(diagnostics: Diagnostics, configured: str, minimum: str) -> None:
+    executable = executable_path(configured)
+    if executable is None:
+        return
+    observed = version_of(executable)
+    found = re.search(r"\b(\d+(?:\.\d+)+)\b", observed)
+    required = re.fullmatch(r"\d+(?:\.\d+)+", minimum or "")
+    if not required:
+        diagnostics.add("tool.diamond_version", "tool", "fail", "required", f"DIAMOND_MIN_VERSION 无效：{minimum or '未配置'}。", "使用形如 2.2.4 的版本号。", minimum)
+        return
+    if found is None:
+        diagnostics.add("tool.diamond_version", "tool", "fail", "required", "无法读取 DIAMOND 版本。", "确认 diamond --version 可执行，且版本不低于要求。", observed)
+        return
+    actual_tuple = tuple(map(int, found.group(1).split(".")))
+    required_tuple = tuple(map(int, minimum.split(".")))
+    if actual_tuple >= required_tuple:
+        diagnostics.add("tool.diamond_version", "tool", "pass", "required", f"DIAMOND 版本满足最低要求（>= {minimum}）。", value=found.group(1))
+    else:
+        diagnostics.add("tool.diamond_version", "tool", "fail", "required", f"DIAMOND {found.group(1)} 低于最低要求 {minimum}。", "在 contig-ui 环境执行 conda install -n contig-ui -c conda-forge -c bioconda diamond=2.2.4。", found.group(1))
+
+
 def check_virsorter_python_dependency(diagnostics: Diagnostics, configured: str) -> None:
     """Verify a dependency from the interpreter that runs VirSorter2 itself."""
     executable = executable_path(configured)
@@ -279,6 +300,7 @@ def run(config_path: Path) -> dict[str, object]:
         ("tool.megan_daa2rma", "MEGAN daa2rma", settings.get("MEGAN_DAA2RMA", ""), "在 pipeline.env 中填写可执行的 MEGAN_DAA2RMA 绝对路径，并确认许可证可用。"),
     ]:
         check_command(diagnostics, check_id, label, command, remediation)
+    check_diamond_version(diagnostics, "diamond", settings.get("DIAMOND_MIN_VERSION", "2.2.4"))
     check_virsorter_python_dependency(diagnostics, settings.get("VIRSORTER_COMMAND", "virsorter"))
 
     genomad = diagnostics.path("reference.genomad", "reference", settings.get("GENOMAD_DB", ""), "dir")

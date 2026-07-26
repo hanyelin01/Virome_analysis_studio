@@ -25,7 +25,7 @@ load_pipeline_config() {
   : "${ICTV_FAMILY_GENOME_REFERENCE:=$PIPELINE_HOME/config/ictv_family_genome_reference.tsv}"
   : "${PRIORITY_REVIEW_TAXA_REFERENCE:=$PIPELINE_HOME/config/priority_review_taxa.tsv}"
   : "${DIAMOND_NR_DB:=}"; : "${DIAMOND_DEFAULT_TAXONLIST:=10239}"; : "${DIAMOND_EVALUE:=1e-5}"
-  : "${DIAMOND_NR_MAX_TARGET_SEQS:=25}"; : "${DIAMOND_SENSITIVITY:=more-sensitive}"
+  : "${DIAMOND_NR_MAX_TARGET_SEQS:=25}"; : "${DIAMOND_SENSITIVITY:=more-sensitive}"; : "${DIAMOND_MIN_VERSION:=2.2.4}"
   : "${ICTV_REFERENCE_DMND:=}"; : "${ICTV_REFERENCE_METADATA:=}"; : "${ICTV_REFERENCE_VERSION:=unconfigured}"
   : "${ICTV_REFERENCE_MAX_TARGET_SEQS:=25}"
   : "${MEGAN_DAA2RMA:=}"; : "${MEGAN_MAP_DB:=}"; : "${TAXONKIT_DB:=}"
@@ -40,6 +40,13 @@ require_executable() {
   else
     require_command "$executable"
   fi
+}
+version_at_least() { [[ $(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1) == "$2" ]]; }
+require_diamond_version() {
+  local actual required=${DIAMOND_MIN_VERSION:-2.2.4}
+  actual=$(diamond version 2>&1 | awk '/[Dd]iamond version/ {print $3; exit}')
+  [[ $actual =~ ^[0-9]+(\.[0-9]+)+$ ]] || die "$PIPELINE_EXIT_MISSING_TOOL" "Cannot determine DIAMOND version"
+  version_at_least "$actual" "$required" || die "$PIPELINE_EXIT_MISSING_TOOL" "DIAMOND $actual is too old; version $required or later is required"
 }
 positive_int() { [[ ${1:-} =~ ^[1-9][0-9]*$ ]]; }
 valid_taxonlist() { [[ ${1:-} =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; }

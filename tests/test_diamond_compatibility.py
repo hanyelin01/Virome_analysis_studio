@@ -14,18 +14,18 @@ SUMMARY = ROOT / "scripts" / "helpers" / "summarize_diamond_taxonomy.py"
 
 
 class DiamondCompatibilityTest(unittest.TestCase):
-    def test_v2_compatible_fields_preserve_taxonkit_inputs(self) -> None:
-        """DIAMOND 2.0.x lacks slineages, but supplies the TaxonKit taxids."""
+    def test_current_diamond_fields_preserve_taxonkit_inputs(self) -> None:
+        """The workflow requires a current DIAMOND with full taxonomy fields."""
         for script in ("05c_run_diamond_virus_discovery.sh", "10_run_diamond_taxonomy.sh"):
             source = (ROOT / "scripts" / script).read_text(encoding="utf-8")
             fields = re.search(r"^fields=\(([^)]*)\)$", source, flags=re.MULTILINE)
             self.assertIsNotNone(fields)
-            self.assertNotIn("slineages", fields.group(1))
+            self.assertIn("slineages", fields.group(1))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hits = root / "hits.tsv"
             hits.write_text(
-                "Q1\t200\t1\t180\t99\t180\t1e-30\t120\t2\t181\tref1\t10239\tViruses\tViruses\n",
+                "Q1\t200\t1\t180\t99\t180\t1e-30\t120\t2\t181\tref1\t10239\tViruses\tViruses\tViruses; Exampleviridae\n",
                 encoding="utf-8",
             )
             lca = root / "lca.tsv"
@@ -44,6 +44,7 @@ class DiamondCompatibilityTest(unittest.TestCase):
                 row = next(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(row["best_staxids"], "10239")
             self.assertEqual(row["best_scientific_names"], "Viruses")
+            self.assertEqual(row["best_lineages"], "Viruses; Exampleviridae")
             self.assertEqual(row["lca_lineage"], "Viruses")
 
 

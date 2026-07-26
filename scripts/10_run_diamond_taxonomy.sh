@@ -32,7 +32,7 @@ positive_int "$THREADS" && positive_int "$MAX_TARGETS" || die 2 'Threads and max
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'DIAMOND thread request exceeds configured limits'
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 [[ -n $TAXONKIT_DB && -d $TAXONKIT_DB ]] || die 3 'TAXONKIT_DB is missing or not a directory'
-require_command diamond; require_command taxonkit
+require_command diamond; require_diamond_version; require_command taxonkit
 case "$TAXON_SCOPE" in
   virus) TAXONLIST="${TAXONLIST:-$DIAMOND_DEFAULT_TAXONLIST}";;
   none) TAXONLIST='';;
@@ -51,10 +51,9 @@ if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then
 fi
 mkdir -p "$OUT"
 
-# All taxonomic interpretation is based on staxids and TaxonKit below.  Use
-# fields supported by the deployed DIAMOND 2.0.x release; rank/lineage output
-# fields such as slineages were introduced only in later DIAMOND versions.
-fields=(qseqid qlen qstart qend pident length evalue bitscore sstart send sseqid staxids sscinames sskingdoms)
+# Retain rich DIAMOND subject taxonomy while TaxonKit independently computes
+# query-level LCA from staxids.
+fields=(qseqid qlen qstart qend pident length evalue bitscore sstart send sseqid staxids sscinames sskingdoms slineages sdomain skingdom sphylum sclass sorder sfamily sgenus sspecies)
 diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && diamond_args+=(--more-sensitive)
 [[ -z $TAXONLIST ]] || diamond_args+=(--taxonlist "$TAXONLIST")
