@@ -7,20 +7,22 @@ source "$SCRIPT_DIR/lib/common.sh"; load_pipeline_config
 usage() { cat <<'EOF'
 Usage:
   run_fine_annotation.sh --source checkv --viral-report-dir PATH --mode megan|taxonomy|both --threads N
-                         [--taxon-scope virus|none|custom] [--taxonlist IDs] [--max-target-seqs N] [--resume]
+                         [--taxon-scope virus|none|custom] [--taxonlist IDs] [--max-target-seqs N]
+                         [--block-size GB] [--index-chunks N] [--tmpdir PATH] [--resume]
   run_fine_annotation.sh --source custom --custom-input PATH --custom-input-type file|directory --output-dir PATH
                          --mode megan|taxonomy|both --threads N
-                         [--taxon-scope virus|none|custom] [--taxonlist IDs] [--max-target-seqs N] [--resume]
+                         [--taxon-scope virus|none|custom] [--taxonlist IDs] [--max-target-seqs N]
+                         [--block-size GB] [--index-chunks N] [--tmpdir PATH] [--resume]
 EOF
 }
 
-SOURCE='' VIRAL_REPORT_DIR='' CUSTOM_INPUT='' CUSTOM_INPUT_TYPE='file' OUTPUT_DIR='' MODE='both' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" RESUME=0
+SOURCE='' VIRAL_REPORT_DIR='' CUSTOM_INPUT='' CUSTOM_INPUT_TYPE='file' OUTPUT_DIR='' MODE='both' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" BLOCK_SIZE="$DIAMOND_BLOCK_SIZE" INDEX_CHUNKS="$DIAMOND_INDEX_CHUNKS" TMPDIR="$DIAMOND_TMPDIR" RESUME=0
 while (($#)); do
   case "$1" in
-    --source|--viral-report-dir|--custom-input|--custom-input-type|--output-dir|--mode|--threads|--taxon-scope|--taxonlist|--max-target-seqs)
+    --source|--viral-report-dir|--custom-input|--custom-input-type|--output-dir|--mode|--threads|--taxon-scope|--taxonlist|--max-target-seqs|--block-size|--index-chunks|--tmpdir)
       (($# >= 2)) || die 2 "Missing value for $1"
       case "$1" in
-        --source) SOURCE=$2;; --viral-report-dir) VIRAL_REPORT_DIR=$2;; --custom-input) CUSTOM_INPUT=$2;; --custom-input-type) CUSTOM_INPUT_TYPE=$2;; --output-dir) OUTPUT_DIR=$2;; --mode) MODE=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;;
+        --source) SOURCE=$2;; --viral-report-dir) VIRAL_REPORT_DIR=$2;; --custom-input) CUSTOM_INPUT=$2;; --custom-input-type) CUSTOM_INPUT_TYPE=$2;; --output-dir) OUTPUT_DIR=$2;; --mode) MODE=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;; --block-size) BLOCK_SIZE=$2;; --index-chunks) INDEX_CHUNKS=$2;; --tmpdir) TMPDIR=$2;;
       esac
       shift 2;;
     --resume) RESUME=1; shift;;
@@ -33,6 +35,7 @@ done
 [[ $TAXON_SCOPE == virus || $TAXON_SCOPE == none || $TAXON_SCOPE == custom ]] || die 2 'Invalid --taxon-scope'
 positive_int "$THREADS" && positive_int "$MAX_TARGETS" || die 2 'Threads and max-target-seqs must be positive integers'
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'Fine-annotation thread request exceeds configured limits'
+validate_diamond_performance "$THREADS" "$BLOCK_SIZE" "$INDEX_CHUNKS" "$TMPDIR"
 case "$TAXON_SCOPE" in
   virus) TAXONLIST="${TAXONLIST:-$DIAMOND_DEFAULT_TAXONLIST}";;
   none) TAXONLIST='';;
@@ -91,9 +94,12 @@ THREADS=$THREADS
 TAXON_SCOPE=$TAXON_SCOPE
 TAXONLIST=${TAXONLIST:-all_nr}
 MAX_TARGET_SEQS=$MAX_TARGETS
+BLOCK_SIZE=$BLOCK_SIZE
+INDEX_CHUNKS=$INDEX_CHUNKS
+TMPDIR=$TMPDIR
 RESUME=$RESUME
 EOF
-common=(--input "$INPUT" --output-dir "$OUTPUT_DIR" --threads "$THREADS" --taxon-scope "$TAXON_SCOPE" --max-target-seqs "$MAX_TARGETS")
+common=(--input "$INPUT" --output-dir "$OUTPUT_DIR" --threads "$THREADS" --taxon-scope "$TAXON_SCOPE" --max-target-seqs "$MAX_TARGETS" --block-size "$BLOCK_SIZE" --index-chunks "$INDEX_CHUNKS" --tmpdir "$TMPDIR")
 [[ -z $TAXONLIST ]] || common+=(--taxonlist "$TAXONLIST")
 if [[ $MODE == megan || $MODE == both ]]; then
   step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" "${common[@]}"); (( RESUME )) && step+=(--resume); run_step diamond_megan "${step[@]}"

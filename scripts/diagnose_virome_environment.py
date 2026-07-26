@@ -274,6 +274,24 @@ def check_parameter(
         diagnostics.add(check_id, "parameter", "fail", "required", f"{label} 无效：{value or '未配置'}。", f"应为：{expected}。", value)
 
 
+def check_diamond_tmpdir(diagnostics: Diagnostics, value: str, block_size: str) -> None:
+    path = Path(value).expanduser()
+    if not path.is_dir() or not os.access(path, os.R_OK | os.W_OK):
+        diagnostics.add("parameter.diamond_tmpdir", "parameter", "fail", "required", f"DIAMOND_TMPDIR 不存在或不可写：{path}。", "选择可写的高速临时目录；推荐容量充足时使用 /dev/shm。", str(path))
+        return
+    try:
+        available = os.statvfs(path).f_bavail * os.statvfs(path).f_frsize
+        available_gib = available / (1024 ** 3)
+        required_gib = float(block_size) * 1.2
+    except (OSError, ValueError):
+        diagnostics.add("parameter.diamond_tmpdir", "parameter", "warn", "recommended", f"DIAMOND 临时目录可写，但无法评估可用空间：{path}。", "确认临时目录可用空间高于 block size，并预留额外空间。", str(path))
+        return
+    if available_gib < required_gib:
+        diagnostics.add("parameter.diamond_tmpdir", "parameter", "warn", "recommended", f"DIAMOND 临时目录可写，但可用空间仅 {available_gib:.1f} GiB。", f"建议至少预留约 {required_gib:.1f} GiB；可降低 DIAMOND_BLOCK_SIZE 或改用更大临时盘。", str(path))
+    else:
+        diagnostics.add("parameter.diamond_tmpdir", "parameter", "pass", "required", f"DIAMOND 临时目录可写，可用空间 {available_gib:.1f} GiB。", value=str(path))
+
+
 def run(config_path: Path) -> dict[str, object]:
     diagnostics = Diagnostics()
     settings, config_error = parse_env(config_path)
@@ -329,6 +347,14 @@ def run(config_path: Path) -> dict[str, object]:
     check_parameter(diagnostics, "parameter.total_threads", "MAX_TOTAL_THREADS", settings.get("MAX_TOTAL_THREADS", ""), positive_integer, "正整数")
     check_parameter(diagnostics, "parameter.diamond_taxonlist", "DIAMOND_DEFAULT_TAXONLIST", settings.get("DIAMOND_DEFAULT_TAXONLIST", ""), lambda value: bool(re.fullmatch(r"[1-9][0-9]*(,[1-9][0-9]*)*", value or "")), "以英文逗号分隔的正整数 TaxID")
     check_parameter(diagnostics, "parameter.diamond_evalue", "DIAMOND_EVALUE", settings.get("DIAMOND_EVALUE", ""), lambda value: decimal_in_range(value, 0.0, 1.0) and float(value) > 0.0, "0 到 1 之间的正数")
+    diamond_threads = settings.get("DIAMOND_THREADS_PER_JOB", "64")
+    diamond_block_size = settings.get("DIAMOND_BLOCK_SIZE", "4.0")
+    diamond_index_chunks = settings.get("DIAMOND_INDEX_CHUNKS", "1")
+    diamond_tmpdir = settings.get("DIAMOND_TMPDIR", "/dev/shm")
+    check_parameter(diagnostics, "parameter.diamond_threads_per_job", "DIAMOND_THREADS_PER_JOB", diamond_threads, positive_integer, "正整数")
+    check_parameter(diagnostics, "parameter.diamond_block_size", "DIAMOND_BLOCK_SIZE", diamond_block_size, lambda value: decimal_in_range(value, 0.01, 128.0), "0.01–128 的 GB 数值")
+    check_parameter(diagnostics, "parameter.diamond_index_chunks", "DIAMOND_INDEX_CHUNKS", diamond_index_chunks, positive_integer, "正整数")
+    check_diamond_tmpdir(diagnostics, diamond_tmpdir, diamond_block_size)
     for key in ("COVERM_MIN_READ_PERCENT_IDENTITY", "COVERM_MIN_READ_ALIGNED_PERCENT", "COVERM_MIN_COVERED_FRACTION"):
         check_parameter(diagnostics, f"parameter.{key.lower()}", key, settings.get(key, ""), lambda value: decimal_in_range(value, 0.0, 100.0), "0–100 的数值")
     check_parameter(diagnostics, "parameter.virsorter_conda_off", "VIRSORTER_USE_CONDA_OFF", settings.get("VIRSORTER_USE_CONDA_OFF", ""), lambda value: value in {"0", "1"}, "0 或 1")

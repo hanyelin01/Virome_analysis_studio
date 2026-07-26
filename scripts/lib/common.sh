@@ -26,6 +26,7 @@ load_pipeline_config() {
   : "${PRIORITY_REVIEW_TAXA_REFERENCE:=$PIPELINE_HOME/config/priority_review_taxa.tsv}"
   : "${DIAMOND_NR_DB:=}"; : "${DIAMOND_DEFAULT_TAXONLIST:=10239}"; : "${DIAMOND_EVALUE:=1e-5}"
   : "${DIAMOND_NR_MAX_TARGET_SEQS:=25}"; : "${DIAMOND_SENSITIVITY:=more-sensitive}"; : "${DIAMOND_MIN_VERSION:=2.2.4}"
+  : "${DIAMOND_THREADS_PER_JOB:=64}"; : "${DIAMOND_BLOCK_SIZE:=4.0}"; : "${DIAMOND_INDEX_CHUNKS:=1}"; : "${DIAMOND_TMPDIR:=/dev/shm}"
   : "${ICTV_REFERENCE_DMND:=}"; : "${ICTV_REFERENCE_METADATA:=}"; : "${ICTV_REFERENCE_VERSION:=unconfigured}"
   : "${ICTV_REFERENCE_MAX_TARGET_SEQS:=25}"
   : "${MEGAN_DAA2RMA:=}"; : "${MEGAN_MAP_DB:=}"; : "${TAXONKIT_DB:=}"
@@ -49,7 +50,15 @@ require_diamond_version() {
   version_at_least "$actual" "$required" || die "$PIPELINE_EXIT_MISSING_TOOL" "DIAMOND $actual is too old; version $required or later is required"
 }
 positive_int() { [[ ${1:-} =~ ^[1-9][0-9]*$ ]]; }
+positive_decimal() { [[ ${1:-} =~ ^([1-9][0-9]*)(\.[0-9]+)?$|^0\.[0-9]*[1-9][0-9]*$ ]]; }
 valid_taxonlist() { [[ ${1:-} =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; }
+validate_diamond_performance() {
+  local threads=$1 block_size=$2 index_chunks=$3 tmpdir=$4
+  positive_int "$threads" || die 2 'DIAMOND threads must be a positive integer'
+  positive_decimal "$block_size" || die 2 'DIAMOND block size must be a positive number (GB)'
+  positive_int "$index_chunks" || die 2 'DIAMOND index chunks must be a positive integer'
+  [[ -d $tmpdir && -w $tmpdir ]] || die 3 "DIAMOND temporary directory is unavailable or not writable: $tmpdir"
+}
 path_is_allowed() {
   local candidate=$1 root real_root
   [[ -n "$ALLOWED_DATA_ROOTS" ]] || return 0

@@ -7,16 +7,18 @@ source "$SCRIPT_DIR/lib/common.sh"; load_pipeline_config
 usage() { cat <<'EOF'
 Usage: run_virome_catalogue.sh --assembly-dir PATH --cleandata-dir PATH
        --clean-layout sample_subdirs|flat --read-type pe|se --output-dir PATH
-       --threads N [--groups-file PATH] [--min-contig-length N] [--resume]
+       --threads N [--diamond-threads N] [--diamond-block-size GB]
+       [--diamond-index-chunks N] [--diamond-tmpdir PATH]
+       [--groups-file PATH] [--min-contig-length N] [--resume]
 EOF
 }
-ASSEMBLY_DIR='' CLEAN_DIR='' CLEAN_LAYOUT='' READ_TYPE='' OUTPUT_DIR='' THREADS='' GROUPS_FILE='' MIN_LENGTH="$VIRAL_MIN_CONTIG_LEN" RESUME=0
+ASSEMBLY_DIR='' CLEAN_DIR='' CLEAN_LAYOUT='' READ_TYPE='' OUTPUT_DIR='' THREADS='' DIAMOND_THREADS="$DIAMOND_THREADS_PER_JOB" DIAMOND_BLOCK_SIZE_RUN="$DIAMOND_BLOCK_SIZE" DIAMOND_INDEX_CHUNKS_RUN="$DIAMOND_INDEX_CHUNKS" DIAMOND_TMPDIR_RUN="$DIAMOND_TMPDIR" GROUPS_FILE='' MIN_LENGTH="$VIRAL_MIN_CONTIG_LEN" RESUME=0
 while (($#)); do
   case "$1" in
-    --assembly-dir|--cleandata-dir|--clean-layout|--read-type|--output-dir|--threads|--groups-file|--min-contig-length)
+    --assembly-dir|--cleandata-dir|--clean-layout|--read-type|--output-dir|--threads|--diamond-threads|--diamond-block-size|--diamond-index-chunks|--diamond-tmpdir|--groups-file|--min-contig-length)
       (($# >= 2)) || die 2 "Missing value for $1"
       case "$1" in
-        --assembly-dir) ASSEMBLY_DIR=$2;; --cleandata-dir) CLEAN_DIR=$2;; --clean-layout) CLEAN_LAYOUT=$2;; --read-type) READ_TYPE=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --groups-file) GROUPS_FILE=$2;; --min-contig-length) MIN_LENGTH=$2;;
+        --assembly-dir) ASSEMBLY_DIR=$2;; --cleandata-dir) CLEAN_DIR=$2;; --clean-layout) CLEAN_LAYOUT=$2;; --read-type) READ_TYPE=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --diamond-threads) DIAMOND_THREADS=$2;; --diamond-block-size) DIAMOND_BLOCK_SIZE_RUN=$2;; --diamond-index-chunks) DIAMOND_INDEX_CHUNKS_RUN=$2;; --diamond-tmpdir) DIAMOND_TMPDIR_RUN=$2;; --groups-file) GROUPS_FILE=$2;; --min-contig-length) MIN_LENGTH=$2;;
       esac
       shift 2;;
     --resume) RESUME=1; shift;;
@@ -29,6 +31,8 @@ done
 [[ $READ_TYPE == pe || $READ_TYPE == se ]] || die 2 'Invalid --read-type'
 positive_int "$THREADS" && positive_int "$MIN_LENGTH" || die 2 'Thread count and minimum contig length must be positive integers'
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'Virome-catalogue thread request exceeds configured limits'
+validate_diamond_performance "$DIAMOND_THREADS" "$DIAMOND_BLOCK_SIZE_RUN" "$DIAMOND_INDEX_CHUNKS_RUN" "$DIAMOND_TMPDIR_RUN"
+(( DIAMOND_THREADS <= MAX_THREADS_PER_VIRAL_TOOL && DIAMOND_THREADS <= MAX_TOTAL_THREADS )) || die 2 'DIAMOND thread request exceeds configured limits'
 assert_existing_dir 'assembly directory' "$ASSEMBLY_DIR"; assert_existing_dir 'cleandata directory' "$CLEAN_DIR"
 require_allowed_path 'assembly directory' "$ASSEMBLY_DIR"; require_allowed_path 'cleandata directory' "$CLEAN_DIR"; require_allowed_path 'virome output directory' "$OUTPUT_DIR"
 [[ -z $GROUPS_FILE || -f $GROUPS_FILE ]] || die 3 "Group metadata file does not exist: $GROUPS_FILE"
@@ -61,6 +65,10 @@ DIAMOND_NR_DB=$DIAMOND_NR_DB
 DIAMOND_DEFAULT_TAXONLIST=$DIAMOND_DEFAULT_TAXONLIST
 DIAMOND_EVALUE=$DIAMOND_EVALUE
 DIAMOND_NR_MAX_TARGET_SEQS=$DIAMOND_NR_MAX_TARGET_SEQS
+DIAMOND_THREADS=$DIAMOND_THREADS
+DIAMOND_BLOCK_SIZE=$DIAMOND_BLOCK_SIZE_RUN
+DIAMOND_INDEX_CHUNKS=$DIAMOND_INDEX_CHUNKS_RUN
+DIAMOND_TMPDIR=$DIAMOND_TMPDIR_RUN
 ICTV_REFERENCE_DMND=$ICTV_REFERENCE_DMND
 ICTV_REFERENCE_METADATA=$ICTV_REFERENCE_METADATA
 ICTV_REFERENCE_VERSION=$ICTV_REFERENCE_VERSION
@@ -68,7 +76,7 @@ RESUME=$RESUME
 EOF
 CONTRACT="$OUTPUT_DIR/.contig_pipeline/virome_catalogue_contract.env"
 if [[ -f $CONTRACT ]]; then
-  if ! diff -u <(grep -v '^THREADS=\|^RESUME=' "$CONTRACT") <(grep -v '^THREADS=\|^RESUME=' "$RUN_DIR/parameters.env") >/dev/null; then
+  if ! diff -u <(grep -Ev '^(THREADS|RESUME|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$CONTRACT") <(grep -Ev '^(THREADS|RESUME|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$RUN_DIR/parameters.env") >/dev/null; then
     die 4 'Existing v2 output was created with different inputs, databases, or result parameters; use a new output directory'
   fi
 else
@@ -80,7 +88,7 @@ trap on_error ERR
 
 launch_megan_background() {
   local stage="$OUTPUT_DIR/04_nr_megan" pid_file="$stage/background.pid" status_file="$stage/background.status" log_file="$stage/background.log"
-  local auxiliary_threads=$THREADS existing_pid
+  local auxiliary_threads=$DIAMOND_THREADS existing_pid
   mkdir -p "$stage"
   if [[ -s "$stage/viral_candidates.nr.daa" && -s "$stage/viral_candidates.nr.rma6" ]]; then
     printf 'state=completed\nfinished_at=%s\n' "$(date -Is)" > "$status_file"
@@ -95,12 +103,12 @@ launch_megan_background() {
     fi
     rm -f "$pid_file"
   fi
-  if (( THREADS + auxiliary_threads > MAX_TOTAL_THREADS )); then
-    auxiliary_threads=$((MAX_TOTAL_THREADS - THREADS))
+  if (( DIAMOND_THREADS + auxiliary_threads > MAX_TOTAL_THREADS )); then
+    auxiliary_threads=$((MAX_TOTAL_THREADS - DIAMOND_THREADS))
   fi
   (( auxiliary_threads >= 1 )) || { echo "[WARN] MEGAN auxiliary task deferred: no thread capacity remains" >&2; return 0; }
   require_command setsid
-  local -a step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_megan --threads "$auxiliary_threads" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --resume)
+  local -a step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_megan --threads "$auxiliary_threads" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --block-size "$DIAMOND_BLOCK_SIZE_RUN" --index-chunks "$DIAMOND_INDEX_CHUNKS_RUN" --tmpdir "$DIAMOND_TMPDIR_RUN" --resume)
   export AUXILIARY_STATUS_FILE="$status_file" AUXILIARY_PID_FILE="$pid_file"
   setsid bash -c '
     set +e
@@ -126,12 +134,12 @@ run_step preflight bash "$SCRIPT_DIR/00_preflight.sh" --task assembly_only --cle
 step=(bash "$SCRIPT_DIR/04_prepare_viral_contigs.sh" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST" --output-dir "$OUTPUT_DIR" --min-contig-length "$MIN_LENGTH"); (( RESUME )) && step+=(--resume); run_step prepare_contigs "${step[@]}"
 step=(bash "$SCRIPT_DIR/05_run_genomad.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --database "$GENOMAD_DB" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step genomad "${step[@]}"
 step=(bash "$SCRIPT_DIR/05b_run_virsorter2.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step virsorter2 "${step[@]}"
-step=(bash "$SCRIPT_DIR/05c_run_diamond_virus_discovery.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step diamond_virus_discovery "${step[@]}"
+step=(bash "$SCRIPT_DIR/05c_run_diamond_virus_discovery.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --threads "$DIAMOND_THREADS" --block-size "$DIAMOND_BLOCK_SIZE_RUN" --index-chunks "$DIAMOND_INDEX_CHUNKS_RUN" --tmpdir "$DIAMOND_TMPDIR_RUN"); (( RESUME )) && step+=(--resume); run_step diamond_virus_discovery "${step[@]}"
 if [[ ! -s "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" ]]; then
   run_step build_candidate_catalogue python3 "$SCRIPT_DIR/helpers/build_virus_candidate_catalogue.py" --input-fasta "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --provenance "$OUTPUT_DIR/01_prepared_contigs/contig_provenance.tsv" --genomad-fasta "$OUTPUT_DIR/02_genomad/viral_candidates_genomad.fna" --virsorter-fasta "$OUTPUT_DIR/02b_virsorter2/viral_candidates_virsorter2.fna" --diamond-virus-hits "$OUTPUT_DIR/02c_diamond_virus/nr_virus_hits.tsv" --output-dir "$OUTPUT_DIR/03_candidate_catalogue"
 elif (( ! RESUME )); then die 4 'Candidate catalogue already exists; use --resume or a new output directory'; fi
 launch_megan_background
-step=(bash "$SCRIPT_DIR/10_run_diamond_taxonomy.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_annotation --threads "$THREADS" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS"); (( RESUME )) && step+=(--resume); run_step diamond_nr_taxonomy "${step[@]}"
+step=(bash "$SCRIPT_DIR/10_run_diamond_taxonomy.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_annotation --threads "$DIAMOND_THREADS" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --block-size "$DIAMOND_BLOCK_SIZE_RUN" --index-chunks "$DIAMOND_INDEX_CHUNKS_RUN" --tmpdir "$DIAMOND_TMPDIR_RUN"); (( RESUME )) && step+=(--resume); run_step diamond_nr_taxonomy "${step[@]}"
 if [[ ! -s "$OUTPUT_DIR/04_nr_annotation/viral_decision.tsv" ]]; then
   run_step resolve_viral_evidence python3 "$SCRIPT_DIR/helpers/resolve_viral_decision.py" --catalogue-fasta "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --discovery-evidence "$OUTPUT_DIR/03_candidate_catalogue/VC_discovery_evidence.tsv" --taxonomy "$OUTPUT_DIR/04_nr_annotation/contig_taxonomy_lca.tsv" --output-dir "$OUTPUT_DIR/04_nr_annotation"
 elif (( ! RESUME )); then die 4 'Viral decision table already exists; use --resume or a new output directory'; fi
@@ -140,7 +148,7 @@ if [[ ! -f "$OUTPUT_DIR/05_checkv/ictv_selection.tsv" ]]; then
   run_step select_ictv_candidates python3 "$SCRIPT_DIR/helpers/select_ictv_candidates.py" --checkv-fasta "$OUTPUT_DIR/05_checkv/viral_candidates_checkv.fna" --decision "$OUTPUT_DIR/04_nr_annotation/viral_decision.tsv" --taxonomy "$OUTPUT_DIR/04_nr_annotation/contig_taxonomy_lca.tsv" --output-fasta "$OUTPUT_DIR/05_checkv/ictv_input.fna" --output-table "$OUTPUT_DIR/05_checkv/ictv_selection.tsv"
 elif (( ! RESUME )); then die 4 'ICTV selection already exists; use --resume or a new output directory'; fi
 if [[ -s "$OUTPUT_DIR/05_checkv/ictv_input.fna" ]]; then
-  step=(bash "$SCRIPT_DIR/11_refine_ictv.sh" --input "$OUTPUT_DIR/05_checkv/ictv_input.fna" --output-dir "$OUTPUT_DIR" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step ictv_refinement "${step[@]}"
+  step=(bash "$SCRIPT_DIR/11_refine_ictv.sh" --input "$OUTPUT_DIR/05_checkv/ictv_input.fna" --output-dir "$OUTPUT_DIR" --threads "$DIAMOND_THREADS" --block-size "$DIAMOND_BLOCK_SIZE_RUN" --index-chunks "$DIAMOND_INDEX_CHUNKS_RUN" --tmpdir "$DIAMOND_TMPDIR_RUN"); (( RESUME )) && step+=(--resume); run_step ictv_refinement "${step[@]}"
 else
   mkdir -p "$OUTPUT_DIR/06_ictv_refinement"
   printf 'qseqid\tqlen\tqstart\tqend\tpident\tlength\tevalue\tbitscore\tsseqid\n' > "$OUTPUT_DIR/06_ictv_refinement/ictv_hits.tsv"

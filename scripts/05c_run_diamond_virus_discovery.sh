@@ -4,20 +4,21 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"; load_pipeline_config
 
-INPUT='' OUTPUT_DIR='' THREADS='' RESUME=0
+INPUT='' OUTPUT_DIR='' THREADS='' BLOCK_SIZE="$DIAMOND_BLOCK_SIZE" INDEX_CHUNKS="$DIAMOND_INDEX_CHUNKS" TMPDIR="$DIAMOND_TMPDIR" RESUME=0
 while (($#)); do
   case "$1" in
-    --input|--output-dir|--threads)
+    --input|--output-dir|--threads|--block-size|--index-chunks|--tmpdir)
       (($# >= 2)) || die 2 "Missing value for $1"
-      case "$1" in --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; esac
+      case "$1" in --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --block-size) BLOCK_SIZE=$2;; --index-chunks) INDEX_CHUNKS=$2;; --tmpdir) TMPDIR=$2;; esac
       shift 2;;
     --resume) RESUME=1; shift;;
-    -h|--help) echo "Usage: $0 --input FASTA --output-dir PATH --threads N [--resume]"; exit 0;;
+    -h|--help) echo "Usage: $0 --input FASTA --output-dir PATH --threads N [--block-size GB] [--index-chunks N] [--tmpdir PATH] [--resume]"; exit 0;;
     *) die 2 "Unknown option: $1";;
   esac
 done
 [[ -s $INPUT && -n $OUTPUT_DIR && -n $THREADS ]] || die 2 'Input FASTA, output directory and threads are required'
 positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'Invalid DIAMOND thread request'
+validate_diamond_performance "$THREADS" "$BLOCK_SIZE" "$INDEX_CHUNKS" "$TMPDIR"
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 require_command diamond
 require_diamond_version
@@ -37,10 +38,10 @@ mkdir -p "$OUT"
 # DIAMOND 2.2.4+ supplies the source-lineage fields retained for evidence
 # review alongside the TaxonKit-derived classification.
 fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid staxids sscinames slineages)
-args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --taxonlist "$DIAMOND_DEFAULT_TAXONLIST")
+args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --block-size "$BLOCK_SIZE" --index-chunks "$INDEX_CHUNKS" -t "$TMPDIR" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --taxonlist "$DIAMOND_DEFAULT_TAXONLIST")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && args+=(--more-sensitive)
 printf '%q ' diamond "${args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
 diamond "${args[@]}" >"$OUT/diamond.stdout.log" 2>"$OUT/diamond.stderr.log"
 [[ -f $HITS ]] || die 1 "DIAMOND did not create a virus-discovery hit table; inspect: $OUT/diamond.stderr.log"
-printf 'input=%s\ntaxonlist=%s\nmax_target_seqs=%s\n' "$INPUT" "$DIAMOND_DEFAULT_TAXONLIST" "$DIAMOND_NR_MAX_TARGET_SEQS" > "$OUT/parameters.env"
+printf 'input=%s\ntaxonlist=%s\nmax_target_seqs=%s\nthreads=%s\nblock_size=%s\nindex_chunks=%s\ntmpdir=%s\n' "$INPUT" "$DIAMOND_DEFAULT_TAXONLIST" "$DIAMOND_NR_MAX_TARGET_SEQS" "$THREADS" "$BLOCK_SIZE" "$INDEX_CHUNKS" "$TMPDIR" > "$OUT/parameters.env"
 echo "[INFO] DIAMOND virus-discovery hits: $HITS"

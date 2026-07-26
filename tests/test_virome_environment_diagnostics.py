@@ -53,6 +53,10 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
                     "DIAMOND_MIN_VERSION=2.2.4",
                     "DIAMOND_DEFAULT_TAXONLIST=10239",
                     "DIAMOND_EVALUE=1e-5",
+                    "DIAMOND_THREADS_PER_JOB=8",
+                    "DIAMOND_BLOCK_SIZE=1.0",
+                    "DIAMOND_INDEX_CHUNKS=1",
+                    f"DIAMOND_TMPDIR={root}",
                     f"TAXONKIT_DB={references / 'taxonkit'}",
                     f"ICTV_REFERENCE_DMND={references / 'ictv.dmnd'}",
                     f"ICTV_REFERENCE_METADATA={metadata}",
@@ -93,6 +97,7 @@ class ViromeEnvironmentDiagnosticTest(unittest.TestCase):
         self.assertEqual(checks["tool.virsorter2"]["status"], "pass")
         self.assertEqual(checks["tool.virsorter2_screed"]["status"], "pass")
         self.assertEqual(checks["tool.diamond_version"]["status"], "pass")
+        self.assertEqual(checks["parameter.diamond_tmpdir"]["status"], "pass")
         self.assertEqual(checks["reference.ictv_metadata_schema"]["status"], "pass")
         self.assertEqual(checks["parameter.viral_min_contig_len"]["value"], "200")
 

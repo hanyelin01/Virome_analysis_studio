@@ -7,17 +7,17 @@ source "$SCRIPT_DIR/lib/common.sh"; load_pipeline_config
 usage() { cat <<'EOF'
 Usage: 09_run_diamond_megan.sh --input FASTA --output-dir PATH --threads N
        --taxon-scope virus|none|custom [--taxonlist IDs]
-       [--max-target-seqs N] [--resume]
+       [--max-target-seqs N] [--block-size GB] [--index-chunks N] [--tmpdir PATH] [--resume]
 EOF
 }
 
-INPUT='' OUTPUT_DIR='' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" STAGE_DIR='01_diamond_megan' RESUME=0
+INPUT='' OUTPUT_DIR='' THREADS='' TAXON_SCOPE='virus' TAXONLIST='' MAX_TARGETS="$DIAMOND_NR_MAX_TARGET_SEQS" STAGE_DIR='01_diamond_megan' BLOCK_SIZE="$DIAMOND_BLOCK_SIZE" INDEX_CHUNKS="$DIAMOND_INDEX_CHUNKS" TMPDIR="$DIAMOND_TMPDIR" RESUME=0
 while (($#)); do
   case "$1" in
-    --input|--output-dir|--threads|--taxon-scope|--taxonlist|--max-target-seqs|--stage-dir)
+    --input|--output-dir|--threads|--taxon-scope|--taxonlist|--max-target-seqs|--stage-dir|--block-size|--index-chunks|--tmpdir)
       (($# >= 2)) || die 2 "Missing value for $1"
       case "$1" in
-        --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;; --stage-dir) STAGE_DIR=$2;;
+        --input) INPUT=$2;; --output-dir) OUTPUT_DIR=$2;; --threads) THREADS=$2;; --taxon-scope) TAXON_SCOPE=$2;; --taxonlist) TAXONLIST=$2;; --max-target-seqs) MAX_TARGETS=$2;; --stage-dir) STAGE_DIR=$2;; --block-size) BLOCK_SIZE=$2;; --index-chunks) INDEX_CHUNKS=$2;; --tmpdir) TMPDIR=$2;;
       esac
       shift 2;;
     --resume) RESUME=1; shift;;
@@ -30,6 +30,7 @@ done
 positive_int "$THREADS" && positive_int "$MAX_TARGETS" || die 2 'Threads and max-target-seqs must be positive integers'
 [[ $STAGE_DIR =~ ^[A-Za-z0-9._-]+$ ]] || die 2 '--stage-dir must be a simple directory name'
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'DIAMOND thread request exceeds configured limits'
+validate_diamond_performance "$THREADS" "$BLOCK_SIZE" "$INDEX_CHUNKS" "$TMPDIR"
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 require_command diamond; require_diamond_version
 
@@ -55,7 +56,7 @@ fi
 
 mkdir -p "$OUT"
 if [[ ! -s $DAA ]]; then
-  diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$DAA" --outfmt 100 --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
+  diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$DAA" --outfmt 100 --threads "$THREADS" --block-size "$BLOCK_SIZE" --index-chunks "$INDEX_CHUNKS" -t "$TMPDIR" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
   [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && diamond_args+=(--more-sensitive)
   [[ -z $TAXONLIST ]] || diamond_args+=(--taxonlist "$TAXONLIST")
   printf '%q ' diamond "${diamond_args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
@@ -68,5 +69,5 @@ if [[ ! -s $RMA ]]; then
   "$MEGAN_DAA2RMA" -i "$DAA" -o "$RMA" -mdb "$MEGAN_MAP_DB" -sup 1 -t "$THREADS" -v >"$OUT/daa2rma.stdout.log" 2>"$OUT/daa2rma.stderr.log"
 fi
 [[ -s $RMA ]] || die 1 "daa2rma did not produce RMA6; inspect: $OUT/daa2rma.stderr.log"
-printf 'input=%s\ntaxon_scope=%s\ntaxonlist=%s\nmax_target_seqs=%s\n' "$INPUT" "$TAXON_SCOPE" "${TAXONLIST:-all_nr}" "$MAX_TARGETS" > "$OUT/parameters.env"
+printf 'input=%s\ntaxon_scope=%s\ntaxonlist=%s\nmax_target_seqs=%s\nthreads=%s\nblock_size=%s\nindex_chunks=%s\ntmpdir=%s\n' "$INPUT" "$TAXON_SCOPE" "${TAXONLIST:-all_nr}" "$MAX_TARGETS" "$THREADS" "$BLOCK_SIZE" "$INDEX_CHUNKS" "$TMPDIR" > "$OUT/parameters.env"
 echo "[INFO] MEGAN RMA6: $RMA"

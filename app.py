@@ -420,6 +420,21 @@ try:
         c1, c2 = st.columns(2)
         with c1: threads = st.number_input("病毒分析线程数", 1, MAX_VIRAL_THREADS, min(8, MAX_VIRAL_THREADS))
         with c2: viral_min = st.number_input("进入三工具发现的最短 contig 长度", 200, 100000, max(200, int(SETTINGS.get("VIRAL_MIN_CONTIG_LEN", "1000"))))
+        with st.expander("DIAMOND 性能参数", expanded=True):
+            st.caption("这些参数同时用于病毒发现、全 NR 分类、后台 DAA 生成和 ICTV 精细比对；每次运行都会写入参数与 DIAMOND 命令审计文件。")
+            d1, d2, d3, d4 = st.columns(4)
+            with d1:
+                diamond_threads = st.number_input("DIAMOND 每任务线程数", 1, MAX_VIRAL_THREADS, min(MAX_VIRAL_THREADS, int(SETTINGS.get("DIAMOND_THREADS_PER_JOB", "64"))), key="v2_diamond_threads")
+            with d2:
+                block_options = ["0.5", "1", "2", "4", "6", "8", "12", "16"]
+                configured_block = SETTINGS.get("DIAMOND_BLOCK_SIZE", "4.0").rstrip("0").rstrip(".") or "4"
+                diamond_block_size = st.selectbox("--block-size（GB）", block_options, index=block_options.index(configured_block) if configured_block in block_options else block_options.index("4"), key="v2_diamond_block_size")
+            with d3:
+                chunk_options = [1, 2, 4, 8]
+                configured_chunks = int(SETTINGS.get("DIAMOND_INDEX_CHUNKS", "1"))
+                diamond_index_chunks = st.selectbox("--index-chunks", chunk_options, index=chunk_options.index(configured_chunks) if configured_chunks in chunk_options else 0, key="v2_diamond_index_chunks")
+            with d4:
+                diamond_tmpdir = st.text_input("DIAMOND 临时目录（-t）", SETTINGS.get("DIAMOND_TMPDIR", "/dev/shm"), key="v2_diamond_tmpdir", help="推荐 /dev/shm；必须存在、可写且具有足够可用空间。")
         with st.expander("查看 v2 分析结构与有效参数"):
             st.dataframe([
                 {"阶段": "发现", "参数": "geNomad + VirSorter2 + DIAMOND-NR-virus", "值": "均启用", "来源": "v2 固定流程"},
@@ -437,7 +452,7 @@ try:
         assembly = validate_path(assembly_text, "assembly 路径", exists=True)
         clean = validate_path(clean_text, "cleandata 路径", exists=True)
         output = validate_path(output_text, "virome_catalogue 输出路径", exists=False)
-        command = [str(VIROME_CATALOGUE_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--min-contig-length", str(viral_min)]
+        command = [str(VIROME_CATALOGUE_SCRIPT), "--assembly-dir", str(assembly), "--cleandata-dir", str(clean), "--clean-layout", clean_layout, "--read-type", read_type, "--output-dir", str(output), "--threads", str(threads), "--diamond-threads", str(diamond_threads), "--diamond-block-size", diamond_block_size, "--diamond-index-chunks", str(diamond_index_chunks), "--diamond-tmpdir", diamond_tmpdir.strip(), "--min-contig-length", str(viral_min)]
         state_base = output
 
     else:
@@ -461,15 +476,26 @@ try:
             st.caption("默认使用完整 NR 数据库并以 TaxID 10239 限制至病毒。选择“完整 NR”时不传递 --taxonlist，但仍可通过 TaxonKit 生成 LCA。")
         with st.container(border=True):
             st.subheader("③ 资源与可追溯性")
-            threads = st.number_input("DIAMOND 线程数", 1, MAX_VIRAL_THREADS, min(8, MAX_VIRAL_THREADS))
+            threads = st.number_input("DIAMOND 每任务线程数", 1, MAX_VIRAL_THREADS, min(MAX_VIRAL_THREADS, int(SETTINGS.get("DIAMOND_THREADS_PER_JOB", "64"))), key="annotation_diamond_threads")
             max_hits = st.number_input("每条 contig 最大保留命中数", 1, 200, int(SETTINGS.get("DIAMOND_NR_MAX_TARGET_SEQS", "25")), help="TaxonKit LCA 需要保留多个命中；不建议设为 1。")
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                block_options = ["0.5", "1", "2", "4", "6", "8", "12", "16"]
+                configured_block = SETTINGS.get("DIAMOND_BLOCK_SIZE", "4.0").rstrip("0").rstrip(".") or "4"
+                diamond_block_size = st.selectbox("--block-size（GB）", block_options, index=block_options.index(configured_block) if configured_block in block_options else block_options.index("4"), key="annotation_diamond_block_size")
+            with d2:
+                chunk_options = [1, 2, 4, 8]
+                configured_chunks = int(SETTINGS.get("DIAMOND_INDEX_CHUNKS", "1"))
+                diamond_index_chunks = st.selectbox("--index-chunks", chunk_options, index=chunk_options.index(configured_chunks) if configured_chunks in chunk_options else 0, key="annotation_diamond_index_chunks")
+            with d3:
+                diamond_tmpdir = st.text_input("DIAMOND 临时目录（-t）", SETTINGS.get("DIAMOND_TMPDIR", "/dev/shm"), key="annotation_diamond_tmpdir", help="推荐 /dev/shm；必须存在且可写。")
             if mode in {"megan", "both"} and (not SETTINGS.get("MEGAN_DAA2RMA") or not SETTINGS.get("MEGAN_MAP_DB")):
                 st.warning("选择 RMA6 时需要在配置中填写 MEGAN_DAA2RMA 与 MEGAN_MAP_DB。")
             if mode in {"taxonomy", "both"} and not SETTINGS.get("TAXONKIT_DB"):
                 st.warning("选择 LCA 时需要在配置中填写 TAXONKIT_DB。")
         if scope == "custom" and not taxonlist:
             raise ValueError("自定义 NCBI TaxID 不能为空。")
-        command = [str(FINE_ANNOTATION_SCRIPT), "--source", source, "--mode", mode, "--threads", str(threads), "--taxon-scope", scope, "--max-target-seqs", str(max_hits)]
+        command = [str(FINE_ANNOTATION_SCRIPT), "--source", source, "--mode", mode, "--threads", str(threads), "--taxon-scope", scope, "--max-target-seqs", str(max_hits), "--block-size", diamond_block_size, "--index-chunks", str(diamond_index_chunks), "--tmpdir", diamond_tmpdir.strip()]
         if taxonlist: command += ["--taxonlist", taxonlist]
         if source == "checkv":
             report_root = validate_path(report_root_text, "已有 viral_report 路径", exists=True)

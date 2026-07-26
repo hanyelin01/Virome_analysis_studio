@@ -91,6 +91,19 @@ bash scripts/build_ictv_reference_db.sh \
 
 在提交 v2 前，`pipeline.env` 至少还要配置 `GENOMAD_DB`、`CHECKV_DB`、`DIAMOND_NR_DB`、`TAXONKIT_DB`、`MEGAN_DAA2RMA`、`MEGAN_MAP_DB`；运行账号的 `PATH` 必须有 `genomad`、`virsorter`、`checkv`、`diamond`、`taxonkit` 和 `coverm`。DIAMOND 必须为 2.2.4 或更高版本，以保留 `slineages` 和各分类等级字段。
 
+### DIAMOND 性能参数
+
+网页中可针对每次运行选择 `--threads`、`--block-size`、`--index-chunks` 与临时目录 `-t`；相同参数会传给病毒发现、完整 NR 分类、后台 DAA/RMA6 和 ICTV 精细比对，并写入每个阶段的 `parameters.env` 和 `diamond_command.sh`。默认值可在 `pipeline.env` 中维护：
+
+```text
+DIAMOND_THREADS_PER_JOB=64
+DIAMOND_BLOCK_SIZE=4.0
+DIAMOND_INDEX_CHUNKS=1
+DIAMOND_TMPDIR=/dev/shm
+```
+
+`/dev/shm` 为内存盘，通常可减少临时 I/O；运行前诊断会检查其可写性及相对 block size 的可用空间。若内存盘空间不足，应降低 block size 或改用高速本地 SSD。DAA 后台任务与前台 NR 分类并行时，流程会将两者线程总数限制在 `MAX_TOTAL_THREADS` 内。
+
 ## 运行前诊断
 
 每次首次部署、更新 Conda 环境或更新任一参考库后，先执行只读诊断：

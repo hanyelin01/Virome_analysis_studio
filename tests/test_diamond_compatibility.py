@@ -27,6 +27,12 @@ class DiamondCompatibilityTest(unittest.TestCase):
         runner_source = (ROOT / "scripts" / "run_virome_catalogue.sh").read_text(encoding="utf-8")
         self.assertIn("launch_megan_background", runner_source)
         self.assertIn("setsid bash -c", runner_source)
+        self.assertIn("--diamond-block-size", runner_source)
+        for script in ("05c_run_diamond_virus_discovery.sh", "09_run_diamond_megan.sh", "10_run_diamond_taxonomy.sh", "11_refine_ictv.sh"):
+            source = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+            self.assertIn("--block-size", source)
+            self.assertIn("--index-chunks", source)
+            self.assertIn(' -t "$TMPDIR"', source)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hits = root / "hits.tsv"
