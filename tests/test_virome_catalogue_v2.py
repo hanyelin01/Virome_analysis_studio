@@ -102,7 +102,7 @@ class ReportPresentationTest(unittest.TestCase):
             self.assertIn("Sample 1__contig_7", global_report)
             self.assertIn("下载当前结果 TSV", global_report)
             self.assertIn("class='venn'", global_report)
-            self.assertIn("log10", global_report)
+            self.assertIn("DIAMOND-NR-virus · 大档", global_report)
             sample_pages = list((root / "reports/samples").glob("*.html"))
             self.assertEqual(len(sample_pages), 1)
             sample_page = sample_pages[0].read_text(encoding="utf-8")
