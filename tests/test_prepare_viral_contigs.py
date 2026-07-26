@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PREPARE = ROOT / "scripts" / "helpers" / "prepare_viral_contigs.py"
+PREPARE_WRAPPER = ROOT / "scripts" / "04_prepare_viral_contigs.sh"
 
 
 class PrepareViralContigsTest(unittest.TestCase):
@@ -77,6 +78,31 @@ class PrepareViralContigsTest(unittest.TestCase):
             resumed = self.run_prepare(assembly, manifest, output, "--resume")
             self.assertNotEqual(resumed.returncode, 0)
             self.assertIn("different samples", resumed.stderr)
+
+    def test_wrapper_archives_pre_fingerprint_output_then_rebuilds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assembly, manifest = self.make_project(root)
+            report = root / "report"
+            output = report / "01_prepared_contigs"
+            self.assertEqual(self.run_prepare(assembly, manifest, output).returncode, 0)
+            (output / "preparation_inputs.json").unlink()
+            config = root / "pipeline.env"
+            config.write_text(f"ALLOWED_DATA_ROOTS={root}\nVIRAL_MIN_CONTIG_LEN=10\n", encoding="utf-8")
+            completed = subprocess.run(
+                ["bash", str(PREPARE_WRAPPER), "--assembly-dir", str(assembly), "--manifest", str(manifest), "--output-dir", str(report), "--min-contig-length", "10", "--resume"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "CONTIG_PIPELINE_CONFIG": str(config)},
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("Archived legacy prepared contigs", completed.stdout)
+            self.assertTrue((output / "preparation_inputs.json").is_file())
+            archives = list((report / ".contig_pipeline" / "legacy_prepared_contigs").glob("*_01_prepared_contigs"))
+            self.assertEqual(len(archives), 1)
+            self.assertTrue((archives[0] / "merged_assembled_contigs.fna").is_file())
 
     def test_web_entrypoint_scripts_are_executable(self):
         for name in ("run_pipeline.sh", "run_viral_report.sh", "run_fine_annotation.sh"):

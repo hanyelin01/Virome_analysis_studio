@@ -136,3 +136,5 @@ python3 -m unittest tests.test_virome_environment_diagnostics tests.test_virome_
 ## 恢复规则
 
 首次运行创建 `.contig_pipeline/virome_catalogue_contract.env`。只有输入、数据库和结果参数一致时 `--resume` 才会跳过完整步骤；改变 ICTV、NR、输入目录或阈值时请使用新的输出目录。
+
+若旧报告目录中的 `01_prepared_contigs/` 缺少 `preparation_inputs.json`（即早于 manifest 指纹机制），新版在 `--resume` 时会将该目录移动至 `.contig_pipeline/legacy_prepared_contigs/` 留存审计，然后依据本次 manifest 重新构建。不会删除旧 contig，也不会在未经验证的情况下复用它。
