@@ -45,10 +45,16 @@ if [[ -s $SUMMARY ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND/TaxonKit annotation already exists; skipped"; exit 0; }
   die 4 "DIAMOND/TaxonKit output already exists; use --resume or choose another output directory"
 fi
-if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then die 4 "DIAMOND/TaxonKit output is incomplete or conflicting: $OUT"; fi
+if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then
+  (( RESUME )) || die 4 "DIAMOND/TaxonKit output is incomplete or conflicting: $OUT"
+  echo "[INFO] Restarting incomplete DIAMOND/TaxonKit annotation step"
+fi
 mkdir -p "$OUT"
 
-fields=(qseqid qlen qstart qend pident length evalue bitscore sstart send sseqid staxids sscinames sskingdoms slineages sdomain skingdom sphylum sclass sorder sfamily sgenus sspecies)
+# All taxonomic interpretation is based on staxids and TaxonKit below.  Use
+# fields supported by the deployed DIAMOND 2.0.x release; rank/lineage output
+# fields such as slineages were introduced only in later DIAMOND versions.
+fields=(qseqid qlen qstart qend pident length evalue bitscore sstart send sseqid staxids sscinames sskingdoms)
 diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && diamond_args+=(--more-sensitive)
 [[ -z $TAXONLIST ]] || diamond_args+=(--taxonlist "$TAXONLIST")

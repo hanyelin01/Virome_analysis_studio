@@ -25,9 +25,15 @@ if [[ -f $HITS ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND virus-discovery hits already exist; skipped"; exit 0; }
   die 4 "DIAMOND virus-discovery output already exists; use --resume or a new output directory"
 fi
-if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then die 4 "DIAMOND virus-discovery output is incomplete or conflicting: $OUT"; fi
+if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then
+  (( RESUME )) || die 4 "DIAMOND virus-discovery output is incomplete or conflicting: $OUT"
+  echo "[INFO] Restarting incomplete DIAMOND virus-discovery step"
+fi
 mkdir -p "$OUT"
-fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid staxids sscinames slineages)
+# Keep the discovery table compatible with DIAMOND 2.0 as well as newer
+# releases.  TaxonKit derives the lineage later from staxids, so slineages is
+# neither required here nor available in DIAMOND 2.0.x.
+fields=(qseqid qlen qstart qend pident length evalue bitscore sseqid staxids sscinames)
 args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$HITS" --outfmt 6 "${fields[@]}" --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --taxonlist "$DIAMOND_DEFAULT_TAXONLIST")
 [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && args+=(--more-sensitive)
 printf '%q ' diamond "${args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
