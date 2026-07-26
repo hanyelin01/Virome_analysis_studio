@@ -31,7 +31,7 @@ positive_int "$THREADS" && positive_int "$MAX_TARGETS" || die 2 'Threads and max
 [[ $STAGE_DIR =~ ^[A-Za-z0-9._-]+$ ]] || die 2 '--stage-dir must be a simple directory name'
 (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <= MAX_TOTAL_THREADS )) || die 2 'DIAMOND thread request exceeds configured limits'
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
-require_command diamond
+require_command diamond; require_diamond_version
 
 case "$TAXON_SCOPE" in
   virus) TAXONLIST="${TAXONLIST:-$DIAMOND_DEFAULT_TAXONLIST}";;
@@ -45,19 +45,28 @@ if [[ -s $DAA && -s $RMA ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND DAA and MEGAN RMA6 already exist; skipped"; exit 0; }
   die 4 "DIAMOND/MEGAN output already exists; use --resume or choose another output directory"
 fi
-if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then die 4 "DIAMOND/MEGAN output is incomplete or conflicting: $OUT"; fi
+if [[ -e $OUT ]] && ! dir_is_empty_or_missing "$OUT"; then
+  (( RESUME )) || die 4 "DIAMOND/MEGAN output is incomplete or conflicting: $OUT"
+  echo "[INFO] Resuming incomplete DIAMOND/MEGAN auxiliary step"
+fi
 [[ -n $MEGAN_DAA2RMA ]] || die 3 'MEGAN_DAA2RMA is not configured; RMA6 generation requires daa2rma'
 [[ -x $MEGAN_DAA2RMA || $(command -v "$MEGAN_DAA2RMA" 2>/dev/null) ]] || die 127 "MEGAN daa2rma is not executable: $MEGAN_DAA2RMA"
 [[ -n $MEGAN_MAP_DB && -f $MEGAN_MAP_DB ]] || die 3 'MEGAN_MAP_DB is missing or not a readable MEGAN mapping database'
 
 mkdir -p "$OUT"
-diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$DAA" --outfmt 100 --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
-[[ $DIAMOND_SENSITIVITY == more-sensitive ]] && diamond_args+=(--more-sensitive)
-[[ -z $TAXONLIST ]] || diamond_args+=(--taxonlist "$TAXONLIST")
-printf '%q ' diamond "${diamond_args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
-diamond "${diamond_args[@]}" >"$OUT/diamond.stdout.log" 2>"$OUT/diamond.stderr.log"
-[[ -s $DAA ]] || die 1 "DIAMOND did not produce a DAA file; inspect: $OUT/diamond.stderr.log"
-"$MEGAN_DAA2RMA" -i "$DAA" -o "$RMA" -mdb "$MEGAN_MAP_DB" -sup 1 -t "$THREADS" -v >"$OUT/daa2rma.stdout.log" 2>"$OUT/daa2rma.stderr.log"
+if [[ ! -s $DAA ]]; then
+  diamond_args=(blastx --db "$DIAMOND_NR_DB" --query "$INPUT" --out "$DAA" --outfmt 100 --threads "$THREADS" --evalue "$DIAMOND_EVALUE" --max-target-seqs "$MAX_TARGETS")
+  [[ $DIAMOND_SENSITIVITY == more-sensitive ]] && diamond_args+=(--more-sensitive)
+  [[ -z $TAXONLIST ]] || diamond_args+=(--taxonlist "$TAXONLIST")
+  printf '%q ' diamond "${diamond_args[@]}" > "$OUT/diamond_command.sh"; printf '\n' >> "$OUT/diamond_command.sh"
+  diamond "${diamond_args[@]}" >"$OUT/diamond.stdout.log" 2>"$OUT/diamond.stderr.log"
+  [[ -s $DAA ]] || die 1 "DIAMOND did not produce a DAA file; inspect: $OUT/diamond.stderr.log"
+else
+  echo "[INFO] Existing DAA found; continuing with RMA6 conversion"
+fi
+if [[ ! -s $RMA ]]; then
+  "$MEGAN_DAA2RMA" -i "$DAA" -o "$RMA" -mdb "$MEGAN_MAP_DB" -sup 1 -t "$THREADS" -v >"$OUT/daa2rma.stdout.log" 2>"$OUT/daa2rma.stderr.log"
+fi
 [[ -s $RMA ]] || die 1 "daa2rma did not produce RMA6; inspect: $OUT/daa2rma.stderr.log"
 printf 'input=%s\ntaxon_scope=%s\ntaxonlist=%s\nmax_target_seqs=%s\n' "$INPUT" "$TAXON_SCOPE" "${TAXONLIST:-all_nr}" "$MAX_TARGETS" > "$OUT/parameters.env"
 echo "[INFO] MEGAN RMA6: $RMA"

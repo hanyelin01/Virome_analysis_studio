@@ -78,6 +78,48 @@ run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$R
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Virome catalogue stopped; log: $LOG"; exit "$rc"; }
 trap on_error ERR
 
+launch_megan_background() {
+  local stage="$OUTPUT_DIR/04_nr_megan" pid_file="$stage/background.pid" status_file="$stage/background.status" log_file="$stage/background.log"
+  local auxiliary_threads=$THREADS existing_pid
+  mkdir -p "$stage"
+  if [[ -s "$stage/viral_candidates.nr.daa" && -s "$stage/viral_candidates.nr.rma6" ]]; then
+    printf 'state=completed\nfinished_at=%s\n' "$(date -Is)" > "$status_file"
+    echo "[INFO] MEGAN auxiliary files already exist; skipped"
+    return 0
+  fi
+  if [[ -s $pid_file ]]; then
+    existing_pid=$(<"$pid_file")
+    if [[ $existing_pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      echo "[INFO] MEGAN auxiliary task is already running in background (PID $existing_pid)"
+      return 0
+    fi
+    rm -f "$pid_file"
+  fi
+  if (( THREADS + auxiliary_threads > MAX_TOTAL_THREADS )); then
+    auxiliary_threads=$((MAX_TOTAL_THREADS - THREADS))
+  fi
+  (( auxiliary_threads >= 1 )) || { echo "[WARN] MEGAN auxiliary task deferred: no thread capacity remains" >&2; return 0; }
+  require_command setsid
+  local -a step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_megan --threads "$auxiliary_threads" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --resume)
+  export AUXILIARY_STATUS_FILE="$status_file" AUXILIARY_PID_FILE="$pid_file"
+  setsid bash -c '
+    set +e
+    "$@"
+    rc=$?
+    if (( rc == 0 )); then
+      printf "state=completed\\nfinished_at=%s\\n" "$(date -Is)" > "$AUXILIARY_STATUS_FILE"
+    else
+      printf "state=failed\\nexit_code=%s\\nfinished_at=%s\\n" "$rc" "$(date -Is)" > "$AUXILIARY_STATUS_FILE"
+    fi
+    rm -f "$AUXILIARY_PID_FILE"
+    exit "$rc"
+  ' _ "${step[@]}" >>"$log_file" 2>&1 &
+  local auxiliary_pid=$!
+  printf '%s\n' "$auxiliary_pid" > "$pid_file"
+  printf 'state=running\npid=%s\nstarted_at=%s\nthreads=%s\n' "$auxiliary_pid" "$(date -Is)" "$auxiliary_threads" > "$status_file"
+  echo "[INFO] MEGAN DAA/RMA6 auxiliary task started in background (PID $auxiliary_pid; threads $auxiliary_threads)"
+}
+
 run_step preflight bash "$SCRIPT_DIR/00_preflight.sh" --task assembly_only --cleandata-dir "$CLEAN_DIR" --clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST"
 step=(bash "$SCRIPT_DIR/04_prepare_viral_contigs.sh" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST" --output-dir "$OUTPUT_DIR" --min-contig-length "$MIN_LENGTH"); (( RESUME )) && step+=(--resume); run_step prepare_contigs "${step[@]}"
 step=(bash "$SCRIPT_DIR/05_run_genomad.sh" --input "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --output-dir "$OUTPUT_DIR" --database "$GENOMAD_DB" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step genomad "${step[@]}"
@@ -86,8 +128,8 @@ step=(bash "$SCRIPT_DIR/05c_run_diamond_virus_discovery.sh" --input "$OUTPUT_DIR
 if [[ ! -s "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" ]]; then
   run_step build_candidate_catalogue python3 "$SCRIPT_DIR/helpers/build_virus_candidate_catalogue.py" --input-fasta "$OUTPUT_DIR/01_prepared_contigs/merged_assembled_contigs.fna" --provenance "$OUTPUT_DIR/01_prepared_contigs/contig_provenance.tsv" --genomad-fasta "$OUTPUT_DIR/02_genomad/viral_candidates_genomad.fna" --virsorter-fasta "$OUTPUT_DIR/02b_virsorter2/viral_candidates_virsorter2.fna" --diamond-virus-hits "$OUTPUT_DIR/02c_diamond_virus/nr_virus_hits.tsv" --output-dir "$OUTPUT_DIR/03_candidate_catalogue"
 elif (( ! RESUME )); then die 4 'Candidate catalogue already exists; use --resume or a new output directory'; fi
+launch_megan_background
 step=(bash "$SCRIPT_DIR/10_run_diamond_taxonomy.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_annotation --threads "$THREADS" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS"); (( RESUME )) && step+=(--resume); run_step diamond_nr_taxonomy "${step[@]}"
-step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_megan --threads "$THREADS" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS"); (( RESUME )) && step+=(--resume); run_step diamond_megan "${step[@]}"
 if [[ ! -s "$OUTPUT_DIR/04_nr_annotation/viral_decision.tsv" ]]; then
   run_step resolve_viral_evidence python3 "$SCRIPT_DIR/helpers/resolve_viral_decision.py" --catalogue-fasta "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --discovery-evidence "$OUTPUT_DIR/03_candidate_catalogue/VC_discovery_evidence.tsv" --taxonomy "$OUTPUT_DIR/04_nr_annotation/contig_taxonomy_lca.tsv" --output-dir "$OUTPUT_DIR/04_nr_annotation"
 elif (( ! RESUME )); then die 4 'Viral decision table already exists; use --resume or a new output directory'; fi

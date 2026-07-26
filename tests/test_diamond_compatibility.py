@@ -24,6 +24,9 @@ class DiamondCompatibilityTest(unittest.TestCase):
             self.assertIn("slineages", fields.group(1))
         discovery_source = (ROOT / "scripts" / "05c_run_diamond_virus_discovery.sh").read_text(encoding="utf-8")
         self.assertIn('COMPLETE="$OUT/parameters.env"', discovery_source)
+        runner_source = (ROOT / "scripts" / "run_virome_catalogue.sh").read_text(encoding="utf-8")
+        self.assertIn("launch_megan_background", runner_source)
+        self.assertIn("setsid bash -c", runner_source)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hits = root / "hits.tsv"
