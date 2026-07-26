@@ -21,6 +21,8 @@ class DiamondCompatibilityTest(unittest.TestCase):
             fields = re.search(r"^fields=\(([^)]*)\)$", source, flags=re.MULTILINE)
             self.assertIsNotNone(fields)
             self.assertIn("slineages", fields.group(1))
+        discovery_source = (ROOT / "scripts" / "05c_run_diamond_virus_discovery.sh").read_text(encoding="utf-8")
+        self.assertIn('COMPLETE="$OUT/parameters.env"', discovery_source)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             hits = root / "hits.tsv"

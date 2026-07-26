@@ -21,8 +21,11 @@ positive_int "$THREADS" && (( THREADS <= MAX_THREADS_PER_VIRAL_TOOL && THREADS <
 [[ -n $DIAMOND_NR_DB && -f $DIAMOND_NR_DB ]] || die 3 'DIAMOND_NR_DB is missing or not a readable .dmnd file'
 require_command diamond
 require_diamond_version
-OUT="$OUTPUT_DIR/02c_diamond_virus"; HITS="$OUT/nr_virus_hits.tsv"
-if [[ -f $HITS ]]; then
+OUT="$OUTPUT_DIR/02c_diamond_virus"; HITS="$OUT/nr_virus_hits.tsv"; COMPLETE="$OUT/parameters.env"
+# A zero-row hit table is a valid completed result.  Its companion parameter
+# file is the completion marker; a bare/empty TSV can also be left behind when
+# DIAMOND is interrupted before it has written any results.
+if [[ -f $HITS && -f $COMPLETE ]]; then
   (( RESUME )) && { echo "[INFO] DIAMOND virus-discovery hits already exist; skipped"; exit 0; }
   die 4 "DIAMOND virus-discovery output already exists; use --resume or a new output directory"
 fi
