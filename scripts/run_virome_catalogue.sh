@@ -86,8 +86,9 @@ run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$R
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Virome catalogue stopped; log: $LOG"; exit "$rc"; }
 trap on_error ERR
 
+MEGAN_DEFERRED=0
 launch_megan_background() {
-  local stage="$OUTPUT_DIR/04_nr_megan" pid_file="$stage/background.pid" status_file="$stage/background.status" log_file="$stage/background.log"
+  local after_foreground=${1:-0} stage="$OUTPUT_DIR/04_nr_megan" pid_file="$stage/background.pid" status_file="$stage/background.status" log_file="$stage/background.log"
   local auxiliary_threads=$DIAMOND_THREADS existing_pid
   mkdir -p "$stage"
   if [[ -s "$stage/viral_candidates.nr.daa" && -s "$stage/viral_candidates.nr.rma6" ]]; then
@@ -103,10 +104,14 @@ launch_megan_background() {
     fi
     rm -f "$pid_file"
   fi
-  if (( DIAMOND_THREADS + auxiliary_threads > MAX_TOTAL_THREADS )); then
+  if (( ! after_foreground && DIAMOND_THREADS + auxiliary_threads > MAX_TOTAL_THREADS )); then
     auxiliary_threads=$((MAX_TOTAL_THREADS - DIAMOND_THREADS))
   fi
-  (( auxiliary_threads >= 1 )) || { echo "[WARN] MEGAN auxiliary task deferred: no thread capacity remains" >&2; return 0; }
+  if (( auxiliary_threads < 1 )); then
+    MEGAN_DEFERRED=1
+    echo "[INFO] MEGAN auxiliary task deferred until the foreground DIAMOND task has released thread capacity"
+    return 0
+  fi
   require_command setsid
   local -a step=(bash "$SCRIPT_DIR/09_run_diamond_megan.sh" --input "$OUTPUT_DIR/03_candidate_catalogue/VC_catalogue.fna" --output-dir "$OUTPUT_DIR" --stage-dir 04_nr_megan --threads "$auxiliary_threads" --taxon-scope none --max-target-seqs "$DIAMOND_NR_MAX_TARGET_SEQS" --block-size "$DIAMOND_BLOCK_SIZE_RUN" --index-chunks "$DIAMOND_INDEX_CHUNKS_RUN" --tmpdir "$DIAMOND_TMPDIR_RUN" --resume)
   export AUXILIARY_STATUS_FILE="$status_file" AUXILIARY_PID_FILE="$pid_file"
@@ -160,4 +165,8 @@ if [[ ! -s "$OUTPUT_DIR/07_final_catalogue/VF_catalogue.fna" ]]; then
 elif (( ! RESUME )); then die 4 'Final catalogue already exists; use --resume or a new output directory'; fi
 step=(bash "$SCRIPT_DIR/12_quantify_final_fragments.sh" --manifest "$MANIFEST" --sample-dir "$OUTPUT_DIR/08_sample_results" --output-dir "$OUTPUT_DIR/09_abundance" --threads "$THREADS"); (( RESUME )) && step+=(--resume); run_step quantify_fragments "${step[@]}"
 run_step report python3 "$SCRIPT_DIR/helpers/build_virome_catalogue_report.py" --output-dir "$OUTPUT_DIR"
+if (( MEGAN_DEFERRED )); then
+  echo "[INFO] Foreground analysis completed; starting deferred MEGAN DAA/RMA6 auxiliary task"
+  launch_megan_background 1
+fi
 printf 'SUCCESS\n' > "$RUN_DIR/status"; echo "[INFO] Virome catalogue completed: $OUTPUT_DIR/reports/virome_catalogue_dashboard.html"

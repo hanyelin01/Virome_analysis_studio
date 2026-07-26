@@ -26,6 +26,7 @@ class DiamondCompatibilityTest(unittest.TestCase):
         self.assertIn('COMPLETE="$OUT/parameters.env"', discovery_source)
         runner_source = (ROOT / "scripts" / "run_virome_catalogue.sh").read_text(encoding="utf-8")
         self.assertIn("launch_megan_background", runner_source)
+        self.assertIn("MEGAN_DEFERRED", runner_source)
         self.assertIn("setsid bash -c", runner_source)
         self.assertIn("--diamond-block-size", runner_source)
         for script in ("05c_run_diamond_virus_discovery.sh", "09_run_diamond_megan.sh", "10_run_diamond_taxonomy.sh", "11_refine_ictv.sh"):
