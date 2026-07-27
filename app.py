@@ -26,6 +26,7 @@ VIROME_CATALOGUE_SCRIPT = PIPELINE_HOME / "scripts" / "run_virome_catalogue.sh"
 FINE_ANNOTATION_SCRIPT = PIPELINE_HOME / "scripts" / "run_fine_annotation.sh"
 VIROME_DIAGNOSTIC_SCRIPT = PIPELINE_HOME / "scripts" / "diagnose_virome_environment.py"
 CONFIG_FILE = PIPELINE_HOME / "config" / "pipeline.env"
+LOGO_FILE = PIPELINE_HOME / "assets" / "virome-contig-studio-logo.png"
 
 
 def load_settings() -> dict[str, str]:
@@ -580,8 +581,7 @@ st.markdown(
     [data-testid='stAppViewContainer']{background:var(--canvas);color:var(--ink)}
     [data-testid='stSidebar']{background:linear-gradient(180deg,#0b263d 0%,#123d59 100%);border-right:1px solid #214b65}
     [data-testid='stSidebar'] *{color:#eef7fb}
-    [data-testid='stSidebar'] [data-testid='stRadio'] label{border-radius:9px;padding:.5rem .6rem;margin:.14rem 0}
-    [data-testid='stSidebar'] [data-testid='stRadio'] label:hover{background:rgba(255,255,255,.09)}
+    [data-testid='stSidebar'] [data-testid='stVerticalBlock']{gap:.18rem}[data-testid='stSidebar'] .stButton>button{min-height:42px;text-align:left;padding:.45rem .7rem;border-radius:10px;font-weight:700;font-size:.88rem}[data-testid='stSidebar'] .stButton>button[kind='secondary']{background:rgba(255,255,255,.045);border:1px solid rgba(209,236,240,.14);color:#edf7f8}[data-testid='stSidebar'] .stButton>button[kind='secondary']:hover{background:rgba(151,230,220,.12);border-color:rgba(151,230,220,.38)}[data-testid='stSidebar'] .stButton>button[kind='primary']{background:#168a85;border:1px solid #39aaa3;color:#fff;box-shadow:0 5px 13px rgba(0,0,0,.17)}[data-testid='stSidebar'] .stCaptionContainer{font-size:.68rem!important;color:#aac5ce!important;padding:0 .75rem .25rem}.brand-name{font-size:1.05rem;font-weight:800;letter-spacing:-.02em;color:#fff;margin-top:3px}.brand-subtitle{font-size:.61rem;letter-spacing:.09em;color:#9cd9d5;margin-top:1px}.nav-section-label{font-size:.68rem;font-weight:800;letter-spacing:.1em;color:#8ebfca;text-transform:uppercase;margin:1rem 0 .3rem}
     h1,h2,h3{color:var(--ink)!important;letter-spacing:-.025em}.hero{background:radial-gradient(circle at 88% 12%,rgba(76,207,195,.25),transparent 30%),linear-gradient(118deg,#08263e,#0d5967 58%,#117a7a);border-radius:20px;padding:27px 30px;color:#fff;margin-bottom:18px;box-shadow:0 16px 32px rgba(10,47,67,.18)}.hero-grid{display:flex;align-items:center;justify-content:space-between;gap:22px}.hero h2{color:#fff!important;margin:5px 0 7px;font-size:2rem}.hero p{margin:0;color:#d6f0f1;max-width:760px}.eyebrow,.version-badge{display:inline-block;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700}.eyebrow{color:#9ce5dc}.version-badge{margin-left:9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);padding:4px 8px;border-radius:99px;color:#fff;vertical-align:middle}.hero-stats{display:flex;gap:10px;flex-wrap:wrap}.hero-stat{min-width:86px;background:rgba(6,29,47,.3);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:9px 12px}.hero-stat b{display:block;font-size:1rem;color:#fff}.hero-stat span{display:block;font-size:.72rem;color:#c7e6ea;margin-top:2px}
     .workflow-brief{background:#fff;border:1px solid var(--line);border-radius:16px;padding:17px 19px;margin:12px 0 19px;box-shadow:0 4px 14px rgba(20,52,70,.045)}.workflow-brief-top{display:flex;gap:13px;align-items:flex-start}.workflow-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:#e5f4f2;font-size:1.18rem}.workflow-brief h3{margin:0;font-size:1.05rem}.workflow-brief p{margin:4px 0 0;color:var(--muted);font-size:.91rem}.flow-strip{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:14px}.flow-step{font-size:.76rem;font-weight:650;color:#315166;background:#eef4f7;border:1px solid #dae6eb;border-radius:99px;padding:5px 9px}.flow-arrow{color:#91a7b4;font-size:.85rem}
     .section-title{font-size:1.14rem;font-weight:750;color:var(--ink);margin:1.45rem 0 .68rem}.task-note{padding:.4rem 0 .6rem;color:var(--muted)}.status-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}.stButton>button[kind='primary']{background:var(--teal);border-color:var(--teal);box-shadow:0 3px 9px rgba(17,122,122,.18)}.stButton>button[kind='primary']:hover{background:#0c6565;border-color:#0c6565}.stButton>button{border-radius:9px}.stRadio>div{gap:.35rem}.stRadio label{padding:.22rem .35rem}.stNumberInput label,.stTextInput label{font-weight:650}.stTabs [data-baseweb='tab-list']{gap:6px;border-bottom:1px solid var(--line)}.stTabs [data-baseweb='tab']{height:38px;border-radius:8px 8px 0 0;padding:0 13px;color:#526a7a;font-weight:650}.stTabs [aria-selected='true']{background:#e4f4f2;color:#0d6768}.stExpander{background:#fff;border:1px solid var(--line)!important;border-radius:11px!important}.stMetric{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 11px}.stMetric label{color:#607787!important;font-size:.78rem!important}.stMetric [data-testid='stMetricValue']{color:var(--ink);font-size:1.35rem}.stDataFrame{border:1px solid var(--line);border-radius:11px;overflow:hidden}
@@ -597,12 +597,18 @@ if not ALLOWED_ROOTS:
     st.warning("尚未配置路径白名单。请先复制 config/pipeline.env.example 为 config/pipeline.env，并设置 ALLOWED_DATA_ROOTS。")
 
 TASKS = {
-    "① 原始数据质控": "qc_only",
-    "② MEGAHIT 拼接": "assembly_only",
-    "③ 完整拼接流程": "full",
-    "④ 病毒发现注释": "virome_catalogue",
-    "⑤ 任务历史中心": "task_center",
+    "qc_only": "原始数据质控",
+    "assembly_only": "MEGAHIT 拼接",
+    "full": "完整拼接流程",
+    "virome_catalogue": "病毒发现注释",
+    "task_center": "任务历史中心",
 }
+NAV_ITEMS = (
+    ("qc_only", "🧪", "原始数据质控", "Raw data → Clean data"),
+    ("assembly_only", "🧩", "MEGAHIT 拼接", "Clean reads → Contigs"),
+    ("full", "⚙️", "完整拼接流程", "QC → Assembly"),
+    ("virome_catalogue", "🦠", "病毒发现注释", "Discovery → Report"),
+)
 VIROME_MAIN_OPERATION = "病毒发现注释（v2 全流程）"
 VIROME_DIAMOND_OPERATION = "对已有候选进行独立 DIAMOND 精细注释"
 
@@ -611,15 +617,15 @@ def open_task_from_center(record: dict[str, object]) -> None:
     """Open a historical task in the workflow that created it."""
     workflow = str(record["workflow"])
     target = {
-        "qc_only": "① 原始数据质控",
-        "assembly_only": "② MEGAHIT 拼接",
-        "full": "③ 完整拼接流程",
-        "virome_catalogue": "④ 病毒发现注释",
-        "viral_report": "④ 病毒发现注释",
-        "fine_annotation": "④ 病毒发现注释",
-    }.get(workflow, "⑤ 任务历史中心")
+        "qc_only": "qc_only",
+        "assembly_only": "assembly_only",
+        "full": "full",
+        "virome_catalogue": "virome_catalogue",
+        "viral_report": "virome_catalogue",
+        "fine_annotation": "virome_catalogue",
+    }.get(workflow, "task_center")
     st.session_state["selected_task_id"] = record["task_id"]
-    st.session_state["workflow_navigation"] = target
+    st.session_state["workflow_navigation_key"] = target
     if workflow in {"fine_annotation"}:
         st.session_state["virome_operation"] = VIROME_DIAMOND_OPERATION
     elif workflow in {"virome_catalogue", "viral_report"}:
@@ -627,12 +633,32 @@ def open_task_from_center(record: dict[str, object]) -> None:
 
 
 with st.sidebar:
-    st.markdown("## 工作流导航")
-    chosen = st.radio("选择任务", list(TASKS), label_visibility="collapsed", key="workflow_navigation")
-    task = TASKS[chosen]
+    brand_icon, brand_text = st.columns([1, 3])
+    with brand_icon:
+        st.image(str(LOGO_FILE), width=48)
+    with brand_text:
+        st.markdown("<div class='brand-name'>Virome</div><div class='brand-subtitle'>CONTIG STUDIO · v3.0.1</div>", unsafe_allow_html=True)
+    st.markdown("<div class='nav-section-label'>分析工作流</div>", unsafe_allow_html=True)
+    if "workflow_navigation_key" not in st.session_state:
+        st.session_state["workflow_navigation_key"] = "virome_catalogue"
+    task = st.session_state["workflow_navigation_key"]
+    for key, icon, label, subtitle in NAV_ITEMS:
+        active = task == key
+        if st.button(f"{icon}  {label}", key=f"nav_{key}", type="primary" if active else "secondary", use_container_width=True):
+            st.session_state["workflow_navigation_key"] = key
+            st.rerun()
+        st.caption(subtitle)
     st.markdown("---")
+    st.markdown("<div class='nav-section-label'>运行管理</div>", unsafe_allow_html=True)
+    running_tasks = [record for record in task_registry.refresh_tasks() if task_is_allowed(record) and record["status"] in {"STARTING", "RUNNING"}]
+    history_label = f"◷  任务历史中心{f' · {len(running_tasks)} 运行中' if running_tasks else ''}"
+    if st.button(history_label, key="nav_task_center", type="primary" if task == "task_center" else "secondary", use_container_width=True):
+        st.session_state["workflow_navigation_key"] = "task_center"
+        st.rerun()
     st.caption("网页仅调度固定的后端脚本；不会执行任意 Shell 命令。")
     st.caption(f"线程上限：{MAX_TOTAL_THREADS}；病毒工具上限：{MAX_VIRAL_THREADS}")
+
+chosen = TASKS[task]
 
 if task == "task_center":
     show_task_center()
