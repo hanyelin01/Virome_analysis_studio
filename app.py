@@ -321,12 +321,26 @@ def show_task_center() -> None:
                 left, middle, right = st.columns([4, 3, 1])
                 left.write(f"**{record['workflow_label']}**")
                 middle.caption(f"{STATUS_LABELS.get(record['status'], record['status'])} · {record.get('current_step') or '等待/未记录阶段'} · {record['submitted_at']}")
-                if right.button("查看", key=f"open_task_{record['task_id']}", use_container_width=True):
-                    st.session_state["selected_task_id"] = record["task_id"]
+                right.button("进入工作流", key=f"open_task_{record['task_id']}", use_container_width=True,
+                             on_click=open_task_from_center, args=(record,))
+
+
+def show_selected_task_for_workflow(workflow: str) -> None:
     selected_id = st.session_state.get("selected_task_id")
-    selected = next((record for record in records if record["task_id"] == selected_id), None)
-    if selected:
-        show_task_detail(selected)
+    if not selected_id:
+        return
+    records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
+    record = next((item for item in records if item["task_id"] == selected_id), None)
+    if record is None:
+        return
+    related = {workflow}
+    if workflow == "virome_catalogue":
+        related.add("viral_report")
+    if record["workflow"] not in related:
+        return
+    show_task_detail(record)
+    if record["workflow"] in {"virome_catalogue", "viral_report"}:
+        show_report_center(Path(str(record["state_base"])))
 
 
 def show_adapter_evidence(clean_root: Path | None) -> None:
@@ -436,17 +450,52 @@ TASKS = {
     "② MEGAHIT 拼接": "assembly_only",
     "③ 完整拼接流程": "full",
     "④ 全局病毒发现、分类与精细注释": "virome_catalogue",
-    "⑤ 独立 DIAMOND 精细注释（旧结果/自定义）": "fine_annotation",
+    "⑤ 任务中心": "task_center",
 }
+VIROME_MAIN_OPERATION = "全局病毒发现、分类与精细注释（v2）"
+VIROME_DIAMOND_OPERATION = "对已有候选进行独立 DIAMOND 精细注释"
+
+
+def open_task_from_center(record: dict[str, object]) -> None:
+    """Open a historical task in the workflow that created it."""
+    workflow = str(record["workflow"])
+    target = {
+        "qc_only": "① 原始数据质控",
+        "assembly_only": "② MEGAHIT 拼接",
+        "full": "③ 完整拼接流程",
+        "virome_catalogue": "④ 全局病毒发现、分类与精细注释",
+        "viral_report": "④ 全局病毒发现、分类与精细注释",
+        "fine_annotation": "④ 全局病毒发现、分类与精细注释",
+    }.get(workflow, "⑤ 任务中心")
+    st.session_state["selected_task_id"] = record["task_id"]
+    st.session_state["workflow_navigation"] = target
+    if workflow in {"fine_annotation"}:
+        st.session_state["virome_operation"] = VIROME_DIAMOND_OPERATION
+    elif workflow in {"virome_catalogue", "viral_report"}:
+        st.session_state["virome_operation"] = VIROME_MAIN_OPERATION
+
+
 with st.sidebar:
     st.markdown("## 工作流导航")
-    chosen = st.radio("选择任务", list(TASKS), label_visibility="collapsed")
+    chosen = st.radio("选择任务", list(TASKS), label_visibility="collapsed", key="workflow_navigation")
     task = TASKS[chosen]
     st.markdown("---")
     st.caption("网页仅调度固定的后端脚本；不会执行任意 Shell 命令。")
     st.caption(f"线程上限：{MAX_TOTAL_THREADS}；病毒工具上限：{MAX_VIRAL_THREADS}")
 
-show_task_center()
+if task == "task_center":
+    show_task_center()
+    st.stop()
+
+if task == "virome_catalogue":
+    operation = st.radio(
+        "第④工作流中的操作",
+        [VIROME_MAIN_OPERATION, VIROME_DIAMOND_OPERATION],
+        horizontal=True,
+        key="virome_operation",
+    )
+    if operation == VIROME_DIAMOND_OPERATION:
+        task = "fine_annotation"
 
 st.markdown(f"<div class='section-title'>{chosen}</div>", unsafe_allow_html=True)
 task_copy = {
@@ -457,6 +506,7 @@ task_copy = {
     "fine_annotation": "对 CheckV 默认候选或自定义候选 contigs，追加 NR DIAMOND、MEGAN RMA6 和 TaxonKit LCA 注释。",
 }
 st.markdown(f"<div class='task-note'>{task_copy[task]}</div>", unsafe_allow_html=True)
+show_selected_task_for_workflow(task)
 
 layout_labels = {"每个样本一个子文件夹": "sample_subdirs", "所有 FASTQ 位于同一文件夹": "flat"}
 state_base: Path | None = None
@@ -666,5 +716,3 @@ except ValueError as error:
     st.info(str(error))
 
 show_adapter_evidence(adapter_evidence_root)
-if task == "virome_catalogue":
-    show_report_center(state_base)
