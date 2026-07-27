@@ -47,10 +47,12 @@ require_command genomad; require_command checkv; require_command diamond; requir
 
 mkdir -p "$OUTPUT_DIR/.contig_pipeline/runs" "$OUTPUT_DIR/reports"
 RUN_ID="$(date '+%Y%m%d_%H%M%S')_$$"; RUN_DIR="$OUTPUT_DIR/.contig_pipeline/runs/$RUN_ID"; MANIFEST="$RUN_DIR/sample_manifest.tsv"; LOG="$RUN_DIR/pipeline.log"
+TASK_REGISTRY_ID=${CONTIG_PIPELINE_TASK_ID:-}
 mkdir -p "$RUN_DIR"; exec 9>"$OUTPUT_DIR/.contig_pipeline/.pipeline.lock"; flock -n 9 || die 75 "Another virome catalogue is already running for this output location: $OUTPUT_DIR"
 exec > >(tee -a "$LOG") 2>&1; printf 'RUNNING\n' > "$RUN_DIR/status"
 cat > "$RUN_DIR/parameters.env" <<EOF
 TASK=virome_catalogue_v2
+TASK_REGISTRY_ID=$TASK_REGISTRY_ID
 ASSEMBLY_DIR=$ASSEMBLY_DIR
 CLEAN_DIR=$CLEAN_DIR
 CLEAN_LAYOUT=$CLEAN_LAYOUT
@@ -76,7 +78,7 @@ RESUME=$RESUME
 EOF
 CONTRACT="$OUTPUT_DIR/.contig_pipeline/virome_catalogue_contract.env"
 if [[ -f $CONTRACT ]]; then
-  if ! diff -u <(grep -Ev '^(THREADS|RESUME|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$CONTRACT") <(grep -Ev '^(THREADS|RESUME|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$RUN_DIR/parameters.env") >/dev/null; then
+  if ! diff -u <(grep -Ev '^(THREADS|RESUME|TASK_REGISTRY_ID|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$CONTRACT") <(grep -Ev '^(THREADS|RESUME|TASK_REGISTRY_ID|DIAMOND_THREADS|DIAMOND_BLOCK_SIZE|DIAMOND_INDEX_CHUNKS|DIAMOND_TMPDIR)=' "$RUN_DIR/parameters.env") >/dev/null; then
     die 4 'Existing v2 output was created with different inputs, databases, or result parameters; use a new output directory'
   fi
 else

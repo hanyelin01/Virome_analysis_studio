@@ -14,6 +14,10 @@ import streamlit.components.v1 as components
 
 
 PIPELINE_HOME = Path(__file__).resolve().parent
+HELPERS_DIR = PIPELINE_HOME / "scripts" / "helpers"
+if str(HELPERS_DIR) not in sys.path:
+    sys.path.insert(0, str(HELPERS_DIR))
+import task_registry
 PIPELINE_SCRIPT = PIPELINE_HOME / "scripts" / "run_pipeline.sh"
 VIRAL_REPORT_SCRIPT = PIPELINE_HOME / "scripts" / "run_viral_report.sh"
 VIROME_CATALOGUE_SCRIPT = PIPELINE_HOME / "scripts" / "run_virome_catalogue.sh"
@@ -84,14 +88,14 @@ def validate_path(text: str, label: str, *, exists: bool, directory: bool = True
     return path
 
 
-def launch(command: list[str]) -> int:
+def launch(command: list[str], task_id: str) -> int:
     process = subprocess.Popen(
         command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         shell=False,
         start_new_session=True,
-        env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+        env={**os.environ, "LANG": "C", "LC_ALL": "C", "CONTIG_PIPELINE_TASK_ID": task_id},
     )
     return process.pid
 
@@ -179,27 +183,155 @@ def tail(path: Path, limit: int = 24_000) -> str:
     return ("…\n" if size > limit else "") + text
 
 
-def show_status(state_base: Path | None) -> None:
-    st.markdown("<div class='section-title'>运行中心</div>", unsafe_allow_html=True)
-    if state_base is None:
-        st.info("填写有效输出路径后，可在这里查看任务状态与实时日志尾部。")
-        return
-    run = latest_run(state_base)
-    if run is None:
-        st.info("当前输出位置还没有提交过任务。")
-        return
-    status_file = run / "status"
-    status = status_file.read_text(encoding="utf-8", errors="replace").strip() if status_file.is_file() else "STARTING"
-    if status == "RUNNING":
-        st.warning(f"正在运行：{run.name}")
-    elif status == "SUCCESS":
-        st.success(f"已完成：{run.name}")
-    elif status == "FAILED":
-        st.error(f"运行失败：{run.name}")
+STATUS_LABELS = {"STARTING": "等待建立运行目录", "RUNNING": "运行中", "SUCCESS": "已完成", "FAILED": "失败"}
+
+MODULES = [
+    ("preflight", "输入与样本清单检查", "检查路径、FASTQ/contig 配对和本次样本 manifest。"),
+    ("fastp", "fastp 质控与去接头", "生成 cleandata、质控 HTML/JSON 与接头证据。"),
+    ("megahit", "MEGAHIT 拼接", "从 clean reads 进行样本级 de novo 拼接。"),
+    ("prepare_contigs", "contig 准备", "仅按本次 manifest 合并 contig，并应用长度阈值。"),
+    ("genomad", "geNomad 病毒发现", "基于 geNomad 识别潜在病毒 contig。"),
+    ("virsorter2", "VirSorter2 病毒发现", "以 VirSorter2 补充病毒候选识别。"),
+    ("diamond_virus_discovery", "DIAMOND 病毒发现", "以 NR 病毒范围的 DIAMOND 命中补充候选。"),
+    ("build_candidate_catalogue", "候选序列目录", "合并三种发现证据并构建去冗余 VC catalogue。"),
+    ("diamond_nr_taxonomy", "DIAMOND + TaxonKit 分类", "以完整 NR 进行分类比对，并生成 TaxonKit LCA。"),
+    ("diamond_megan", "DIAMOND + MEGAN 辅助文件", "生成供本地人工查看的 DAA/RMA6，不阻塞主报告。"),
+    ("resolve_viral_evidence", "病毒证据判定", "综合发现证据与 NR 分类，筛选进入质量控制的病毒片段。"),
+    ("checkv", "CheckV 质量评估", "评估病毒片段完整度与宿主污染，并保留质量摘要。"),
+    ("ictv_refinement", "ICTV 精细注释", "以本地 ICTV 参考库对已分类到科的片段进行精细比对。"),
+    ("quantify_fragments", "样本分发与丰度", "将最终片段分发回样本并使用 reads 定量。"),
+    ("report", "报告生成", "生成批次总览、单样本页面及可下载结果表。"),
+]
+
+
+def task_is_allowed(record: dict[str, object]) -> bool:
+    try:
+        path = Path(str(record["state_base"])).resolve(strict=False)
+    except (KeyError, OSError):
+        return False
+    return not ALLOWED_ROOTS or any(path == root or root in path.parents for root in ALLOWED_ROOTS)
+
+
+def task_log_paths(record: dict[str, object], module: str | None = None) -> list[Path]:
+    run_text = record.get("run_dir")
+    if not run_text or not task_is_allowed(record):
+        return []
+    run = Path(str(run_text))
+    output = Path(str(record["state_base"]))
+    paths: list[Path] = []
+    if module:
+        candidates = [run / f"{module}.log"]
+        module_terms = {
+            "diamond_virus_discovery": ("02c_diamond_virus",), "diamond_nr_taxonomy": ("04_nr_annotation",),
+            "diamond_megan": ("04_nr_megan",), "ictv_refinement": ("06_ictv_refinement",),
+            "quantify_fragments": ("09_abundance",), "report": ("reports",), "checkv": ("05_checkv", "03_checkv"),
+            "genomad": ("02_genomad",), "virsorter2": ("02b_virsorter2",),
+            "prepare_contigs": ("01_prepared_contigs",), "fastp": ("fastp_report",), "megahit": ("megahit",),
+        }.get(module, ())
+        for name in module_terms:
+            stage = output / name
+            if stage.is_dir():
+                candidates.extend(path for path in stage.rglob("*") if path.is_file() and path.suffix in {".log", ".err", ".out"})
+                candidates.extend(path for path in stage.glob("background.*") if path.is_file())
+                candidates.extend(path for path in stage.glob("*command*.sh") if path.is_file())
+        paths = candidates
     else:
-        st.info(f"状态：{status or 'STARTING'}；运行编号：{run.name}")
-    st.caption(f"运行目录：{run}")
-    st.code(tail(run / "pipeline.log"), language="text")
+        paths = [run / "pipeline.log", run / "parameters.env"]
+    seen: set[Path] = set()
+    return [path for path in paths if path.is_file() and not (path in seen or seen.add(path))][:36]
+
+
+def module_parameters(run_dir: Path | None, module: str) -> str:
+    if run_dir is None:
+        return ""
+    values = task_registry.parse_parameters(run_dir / "parameters.env")
+    keys = {
+        "preflight": ("TASK", "ASSEMBLY_DIR", "CLEAN_DIR", "RAW_DIR"),
+        "fastp": ("QC_PARALLEL", "QC_THREADS", "ADAPTER_PROFILE"),
+        "megahit": ("ASSEMBLY_PARALLEL", "ASSEMBLY_THREADS", "MIN_CONTIG_LEN"),
+        "prepare_contigs": ("MIN_CONTIG_LENGTH",),
+        "genomad": ("THREADS", "GENOMAD_DB"), "virsorter2": ("THREADS",),
+        "diamond_virus_discovery": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR"),
+        "diamond_nr_taxonomy": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR", "DIAMOND_NR_MAX_TARGET_SEQS"),
+        "diamond_megan": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR"),
+        "checkv": ("THREADS", "CHECKV_DB"), "ictv_refinement": ("DIAMOND_THREADS", "ICTV_REFERENCE_VERSION", "ICTV_REFERENCE_DMND"),
+        "quantify_fragments": ("THREADS",), "report": ("GROUPS_FILE",),
+    }.get(module, ())
+    return "\n".join(f"{key}={values[key]}" for key in keys if values.get(key))
+
+
+def show_task_detail(record: dict[str, object]) -> None:
+    st.markdown("<div class='section-title'>任务详情与软件日志</div>", unsafe_allow_html=True)
+    status = str(record.get("status", "STARTING"))
+    headline = f"{record['workflow_label']} · {STATUS_LABELS.get(status, status)}"
+    if status == "RUNNING": st.warning(headline)
+    elif status == "SUCCESS": st.success(headline)
+    elif status == "FAILED": st.error(headline)
+    else: st.info(headline)
+    st.caption(f"提交时间：{record['submitted_at']} ｜ 输出位置：{record['state_base']}")
+    if record.get("run_dir"):
+        st.caption(f"运行目录：{record['run_dir']} ｜ 当前/最后阶段：{record.get('current_step') or '尚未写入阶段'}")
+    else:
+        st.caption("后台进程已提交，正在等待后端创建运行目录。")
+    general_logs = task_log_paths(record)
+    if general_logs:
+        selected = st.selectbox("总运行记录", general_logs, format_func=lambda item: item.name, key=f"general_log_{record['task_id']}")
+        st.code(tail(selected), language="text")
+        st.download_button("下载当前日志/参数文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_general_{record['task_id']}")
+    for module, title, explanation in MODULES:
+        paths = task_log_paths(record, module)
+        run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
+        current = record.get("current_step") == module and status == "RUNNING"
+        available = bool(paths)
+        module_status = "运行中" if current else ("已产生记录" if available else "尚未执行或不适用")
+        with st.expander(f"{title} · {module_status}"):
+            st.caption(explanation)
+            parameters = module_parameters(run_dir, module)
+            if parameters:
+                st.caption("本次任务的有效参数")
+                st.code(parameters, language="text")
+            if not paths:
+                st.info("此任务目前没有该软件的日志或辅助文件。")
+                continue
+            selected = st.selectbox("查看该模块文件", paths, format_func=lambda item: str(item.relative_to(Path(str(record['state_base'])))) if Path(str(record['state_base'])) in item.parents else item.name, key=f"module_log_{record['task_id']}_{module}")
+            st.code(tail(selected), language="text")
+            st.download_button("下载此文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_module_{record['task_id']}_{module}")
+
+
+def show_task_center() -> None:
+    st.markdown("<div class='section-title'>任务中心</div>", unsafe_allow_html=True)
+    import_col, refresh_col = st.columns([3, 1])
+    with import_col:
+        history_path = st.text_input("导入既有历史任务（输出目录）", placeholder="/data/project/virome_catalogue", key="history_output_dir", help="仅扫描该目录下 .contig_pipeline/runs；不会读取原始测序数据。")
+        if st.button("导入该目录的历史任务", key="import_history"):
+            try:
+                root = validate_path(history_path, "历史输出目录", exists=True)
+                count = task_registry.import_history(root)
+                st.success(f"已导入 {count} 条此前未登记的任务。")
+            except ValueError as error:
+                st.error(str(error))
+    with refresh_col:
+        st.write("")
+        st.write("")
+        if st.button("刷新任务状态", use_container_width=True, key="refresh_tasks"):
+            st.rerun()
+    records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
+    categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
+    tabs = st.tabs([item[0] for item in categories])
+    for tab, (_, subset) in zip(tabs, categories):
+        with tab:
+            if not subset:
+                st.caption("暂无任务记录。")
+            for record in subset[:40]:
+                left, middle, right = st.columns([4, 3, 1])
+                left.write(f"**{record['workflow_label']}**")
+                middle.caption(f"{STATUS_LABELS.get(record['status'], record['status'])} · {record.get('current_step') or '等待/未记录阶段'} · {record['submitted_at']}")
+                if right.button("查看", key=f"open_task_{record['task_id']}", use_container_width=True):
+                    st.session_state["selected_task_id"] = record["task_id"]
+    selected_id = st.session_state.get("selected_task_id")
+    selected = next((record for record in records if record["task_id"] == selected_id), None)
+    if selected:
+        show_task_detail(selected)
 
 
 def show_adapter_evidence(clean_root: Path | None) -> None:
@@ -318,6 +450,8 @@ with st.sidebar:
     st.markdown("---")
     st.caption("网页仅调度固定的后端脚本；不会执行任意 Shell 命令。")
     st.caption(f"线程上限：{MAX_TOTAL_THREADS}；病毒工具上限：{MAX_VIRAL_THREADS}")
+
+show_task_center()
 
 st.markdown(f"<div class='section-title'>{chosen}</div>", unsafe_allow_html=True)
 task_copy = {
@@ -517,14 +651,25 @@ try:
         c_run, c_refresh = st.columns([1, 1])
         with c_run:
             if st.button("提交后台任务", type="primary", use_container_width=True):
-                pid = launch(command)
-                st.success(f"任务已提交至 Linux 后台（启动 PID：{pid}）。可刷新或重新打开页面查看状态。")
+                task_id = task_registry.register_submission(task, chosen, state_base, command, 0)
+                try:
+                    pid = launch(command, task_id)
+                except OSError as error:
+                    with task_registry.connect() as connection:
+                        connection.execute("UPDATE tasks SET status='FAILED', completed_at=? WHERE task_id=?", (task_registry.now(), task_id))
+                    st.error(f"后台任务未能启动：{error}")
+                else:
+                    # The process PID becomes available only after Popen succeeds.
+                    # Re-registering is intentionally avoided: update the existing row instead.
+                    with task_registry.connect() as connection:
+                        connection.execute("UPDATE tasks SET pid=? WHERE task_id=?", (pid, task_id))
+                    st.session_state["selected_task_id"] = task_id
+                    st.success(f"任务已提交至 Linux 后台（启动 PID：{pid}）。已登记到任务中心，可随时切换页面后回访。")
         with c_refresh:
             st.button("刷新运行中心", use_container_width=True)
 except ValueError as error:
     st.info(str(error))
 
-show_status(state_base)
 show_adapter_evidence(adapter_evidence_root)
 if task == "virome_catalogue":
     show_report_center(state_base)

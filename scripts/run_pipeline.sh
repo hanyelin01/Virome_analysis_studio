@@ -27,10 +27,12 @@ STATE_BASE=${ASSEMBLY_DIR:-$CLEAN_DIR}; [[ -n $STATE_BASE ]] || die 2 '--cleanda
 require_allowed_path 'pipeline state directory' "$STATE_BASE"
 mkdir -p "$STATE_BASE/.contig_pipeline/runs" "$STATE_BASE/.contig_pipeline/reports"
 RUN_ID="$(date '+%Y%m%d_%H%M%S')_$$"; RUN_DIR="$STATE_BASE/.contig_pipeline/runs/$RUN_ID"; REPORT_DIR="$STATE_BASE/.contig_pipeline/reports"; MANIFEST="$RUN_DIR/sample_manifest.tsv"
+TASK_REGISTRY_ID=${CONTIG_PIPELINE_TASK_ID:-}
 mkdir -p "$RUN_DIR"; exec 9>"$STATE_BASE/.contig_pipeline/.pipeline.lock"; flock -n 9 || die 75 "Another pipeline is already running for this output location: $STATE_BASE"
 LOG="$RUN_DIR/pipeline.log"; exec > >(tee -a "$LOG") 2>&1; printf 'RUNNING\n' > "$RUN_DIR/status"
 cat > "$RUN_DIR/parameters.env" <<EOF
 TASK=$TASK
+TASK_REGISTRY_ID=$TASK_REGISTRY_ID
 RAW_DIR=$RAW_DIR
 RAW_LAYOUT=$RAW_LAYOUT
 CLEAN_DIR=$CLEAN_DIR

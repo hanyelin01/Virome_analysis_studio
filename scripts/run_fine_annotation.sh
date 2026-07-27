@@ -66,6 +66,7 @@ fi
 
 mkdir -p "$OUTPUT_DIR/.contig_pipeline/runs" "$OUTPUT_DIR/reports"
 RUN_ID="$(date '+%Y%m%d_%H%M%S')_$$"; RUN_DIR="$OUTPUT_DIR/.contig_pipeline/runs/$RUN_ID"; LOG="$RUN_DIR/pipeline.log"
+TASK_REGISTRY_ID=${CONTIG_PIPELINE_TASK_ID:-}
 mkdir -p "$RUN_DIR"; exec 9>"$OUTPUT_DIR/.contig_pipeline/.pipeline.lock"; flock -n 9 || die 75 "Another pipeline task is already running for: $OUTPUT_DIR"
 exec > >(tee -a "$LOG") 2>&1; printf 'RUNNING\n' > "$RUN_DIR/status"
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Fine annotation stopped; log: $LOG"; exit "$rc"; }
@@ -86,6 +87,7 @@ fi
 
 cat > "$RUN_DIR/parameters.env" <<EOF
 TASK=fine_annotation
+TASK_REGISTRY_ID=$TASK_REGISTRY_ID
 SOURCE=$SOURCE
 INPUT=$INPUT
 OUTPUT_DIR=$OUTPUT_DIR
