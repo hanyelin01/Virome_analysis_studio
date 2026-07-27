@@ -313,59 +313,87 @@ def show_task_detail(record: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>任务详情与软件日志</div>", unsafe_allow_html=True)
     status = str(record.get("status", "STARTING"))
     headline = f"{task_display_name(record)} · {STATUS_LABELS.get(status, status)}"
-    if status == "RUNNING": st.warning(headline)
-    elif status == "SUCCESS": st.success(headline)
-    elif status == "FAILED": st.error(headline)
-    else: st.info(headline)
-    st.caption(f"工作流：{record['workflow_label']} ｜ 提交时间：{record['submitted_at']} ｜ 输出位置：{record['state_base']}")
-    rename_col, save_col = st.columns([4, 1])
-    with rename_col:
-        renamed = st.text_input("任务名称", value=task_display_name(record), key=f"rename_task_{record['task_id']}")
-    with save_col:
-        st.write("")
-        if st.button("保存名称", key=f"save_task_name_{record['task_id']}", use_container_width=True):
-            task_registry.rename_task(str(record["task_id"]), renamed)
-            st.success("任务名称已保存。")
-    if record.get("run_dir"):
-        st.caption(f"运行目录：{record['run_dir']} ｜ 当前/最后阶段：{record.get('current_step') or '尚未写入阶段'}")
-    else:
-        st.caption("后台进程已提交，正在等待后端创建运行目录。")
-    if status in {"STARTING", "RUNNING"}:
-        with st.expander("终止运行中的任务", expanded=False):
-            st.warning("此操作会向该任务及其子进程发送安全终止请求。已有结果文件会保留，但本次任务将标记为“已终止”，不能作为完整结果使用。")
-            confirmed = st.checkbox("我已确认要终止这项运行中的任务", key=f"terminate_confirm_{record['task_id']}")
-            phrase = st.text_input("请输入“终止”以确认", key=f"terminate_phrase_{record['task_id']}")
-            if st.button("确认终止任务", type="primary", disabled=not (confirmed and phrase.strip() == "终止"), key=f"terminate_task_{record['task_id']}", use_container_width=True):
-                success, message = task_registry.terminate_task(str(record["task_id"]))
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-    general_logs = task_log_paths(record)
-    if general_logs:
-        selected = st.selectbox("总运行记录", general_logs, format_func=lambda item: item.name, key=f"general_log_{record['task_id']}")
-        st.code(tail(selected), language="text")
-        st.download_button("下载当前日志/参数文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_general_{record['task_id']}")
-    st.caption("以下仅显示该工作流相关的软件阶段；状态由该次运行目录的阶段日志和输出文件判定。")
-    for module in modules_for_task(record):
-        title, explanation = MODULES[module]
-        paths = task_log_paths(record, module)
-        run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
-        current = record.get("current_step") == module and status == "RUNNING"
-        available = bool(paths)
-        module_status = "运行中" if current else ("已产生记录" if available else ("本次未执行或不适用" if status in {"SUCCESS", "FAILED"} else "等待执行"))
-        with st.expander(f"{title} · {module_status}"):
-            st.caption(explanation)
-            parameters = module_parameters(run_dir, module)
-            if parameters:
-                st.caption("本次任务的有效参数")
-                st.code(parameters, language="text")
-            if not paths:
-                st.info("此任务目前没有该软件的日志或辅助文件。")
-                continue
-            selected = st.selectbox("查看该模块文件", paths, format_func=lambda item: str(item.relative_to(Path(str(record['state_base'])))) if Path(str(record['state_base'])) in item.parents else item.name, key=f"module_log_{record['task_id']}_{module}")
+    overview_tab, steps_tab, logs_tab, parameters_tab, outputs_tab = st.tabs(["概览", "步骤", "日志", "参数", "输出 / 报告"])
+    run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
+    with overview_tab:
+        if status == "RUNNING": st.warning(headline)
+        elif status == "SUCCESS": st.success(headline)
+        elif status == "FAILED": st.error(headline)
+        elif status == "CANCELLED": st.warning(headline)
+        else: st.info(headline)
+        first, second, third = st.columns(3)
+        first.metric("任务状态", STATUS_LABELS.get(status, status))
+        second.metric("当前/最后步骤", str(record.get("current_step") or "等待建立运行目录"))
+        third.metric("运行编号", run_dir.name if run_dir else "尚未建立")
+        st.caption(f"工作流：{record['workflow_label']} ｜ 提交时间：{record['submitted_at']}")
+        st.code(f"输出位置：{record['state_base']}\n运行目录：{record.get('run_dir') or '尚未建立'}", language="text")
+        rename_col, save_col = st.columns([4, 1])
+        with rename_col:
+            renamed = st.text_input("任务名称", value=task_display_name(record), key=f"rename_task_{record['task_id']}")
+        with save_col:
+            st.write("")
+            if st.button("保存名称", key=f"save_task_name_{record['task_id']}", use_container_width=True):
+                task_registry.rename_task(str(record["task_id"]), renamed)
+                st.success("任务名称已保存。")
+        if status in {"STARTING", "RUNNING"}:
+            with st.expander("终止运行中的任务", expanded=False):
+                st.warning("此操作会向该任务及其子进程发送安全终止请求。已有结果文件会保留，但本次任务将标记为“已终止”，不能作为完整结果使用。")
+                confirmed = st.checkbox("我已确认要终止这项运行中的任务", key=f"terminate_confirm_{record['task_id']}")
+                phrase = st.text_input("请输入“终止”以确认", key=f"terminate_phrase_{record['task_id']}")
+                if st.button("确认终止任务", type="primary", disabled=not (confirmed and phrase.strip() == "终止"), key=f"terminate_task_{record['task_id']}", use_container_width=True):
+                    success, message = task_registry.terminate_task(str(record["task_id"]))
+                    (st.success if success else st.error)(message)
+    with steps_tab:
+        st.caption("仅显示该工作流相关的软件阶段；状态由该次运行目录的阶段日志和输出文件判定。")
+        for module in modules_for_task(record):
+            title, explanation = MODULES[module]
+            paths = task_log_paths(record, module)
+            current = record.get("current_step") == module and status == "RUNNING"
+            available = bool(paths)
+            module_status = "运行中" if current else ("已产生记录" if available else ("本次未执行或不适用" if status in {"SUCCESS", "FAILED", "CANCELLED"} else "等待执行"))
+            with st.expander(f"{title} · {module_status}"):
+                st.caption(explanation)
+                parameters = module_parameters(run_dir, module)
+                if parameters:
+                    st.caption("本次任务的有效参数")
+                    st.code(parameters, language="text")
+                if not paths:
+                    st.info("此任务目前没有该软件的日志或辅助文件。")
+                    continue
+                selected = st.selectbox("查看该模块文件", paths, format_func=lambda item: str(item.relative_to(Path(str(record['state_base'])))) if Path(str(record['state_base'])) in item.parents else item.name, key=f"module_log_{record['task_id']}_{module}")
+                st.code(tail(selected), language="text")
+                st.download_button("下载此文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_module_{record['task_id']}_{module}")
+    with logs_tab:
+        general_logs = task_log_paths(record)
+        if not general_logs:
+            st.info("运行目录建立后，总日志和参数快照会显示在这里。")
+        else:
+            selected = st.selectbox("总运行记录", general_logs, format_func=lambda item: item.name, key=f"general_log_{record['task_id']}")
             st.code(tail(selected), language="text")
-            st.download_button("下载此文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_module_{record['task_id']}_{module}")
+            st.download_button("下载当前日志/参数文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_general_{record['task_id']}")
+    with parameters_tab:
+        if run_dir is None:
+            st.info("等待运行目录建立后显示本次任务的参数快照。")
+        else:
+            parameters = task_registry.parse_parameters(run_dir / "parameters.env")
+            if parameters:
+                st.dataframe([{"参数": key, "值": value} for key, value in parameters.items()], use_container_width=True, hide_index=True)
+                st.download_button("下载参数快照", (run_dir / "parameters.env").read_bytes(), file_name="parameters.env", use_container_width=True, key=f"download_parameters_{record['task_id']}")
+            else:
+                st.info("该运行目录尚未生成参数快照。")
+    with outputs_tab:
+        output_root = Path(str(record["state_base"]))
+        report_root = output_root / "reports"
+        files = sorted((item for item in report_root.rglob("*") if item.is_file()), key=lambda item: item.stat().st_mtime, reverse=True)[:30] if report_root.is_dir() else []
+        if not files:
+            st.info("结果报告生成后，可在这里下载报告、结果表和其他交付文件。")
+        else:
+            st.caption(f"报告目录：{report_root}")
+            for item in files:
+                left, right = st.columns([4, 1])
+                left.caption(f"{item.name} · {item.stat().st_size / 1024:.1f} KB")
+                relative_name = str(item.relative_to(report_root))
+                right.download_button("下载", item.read_bytes(), file_name=item.name, key=f"download_output_{record['task_id']}_{relative_name}", use_container_width=True)
 
 
 def show_task_center() -> None:
@@ -382,6 +410,10 @@ def show_task_center() -> None:
         st.info("配置 ALLOWED_DATA_ROOTS 后，任务历史中心会自动发现其中的历史运行记录。")
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
     categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"]), ("已终止", [r for r in records if r["status"] == "CANCELLED"])]
+    metrics = st.columns(5)
+    for column, (label, subset) in zip(metrics, categories):
+        column.metric(label, len(subset))
+    st.caption("选择一条任务即可进入相应工作流，查看步骤、参数、日志与可用报告。")
     tabs = st.tabs([item[0] for item in categories])
 
     def date_group(record: dict[str, object]) -> str:
@@ -439,6 +471,22 @@ def show_selected_task_for_workflow(workflow: str) -> None:
     show_task_detail(record)
     if record["workflow"] in {"virome_catalogue", "viral_report"}:
         show_report_center(Path(str(record["state_base"])))
+
+
+def show_workflow_overview(workflow: str) -> None:
+    presentation = {
+        "qc_only": ("🧪", "原始数据质控", "将双端 rawdata 标准化为可审计的 cleandata，并保留接头与质量证据。", ("样本检查", "fastp 质控", "证据输出")),
+        "assembly_only": ("🧩", "MEGAHIT 拼接", "基于已有 clean reads 进行样本级拼接，并生成 contig 质量摘要。", ("样本检查", "MEGAHIT", "contig 检查")),
+        "full": ("⚙️", "完整拼接流程", "一次完成 rawdata 质控、拼接与 contig 检查。", ("样本检查", "fastp", "MEGAHIT", "contig 检查")),
+        "virome_catalogue": ("🦠", "病毒发现注释", "以三种发现方法建立候选池，再进行 NR 分类、CheckV、ICTV 精细注释与定量。", ("候选发现", "NR 分类", "质量评估", "ICTV", "报告")),
+        "fine_annotation": ("🔎", "独立 DIAMOND 精细注释", "对既有 CheckV 或自定义候选追加 DIAMOND、MEGAN 与 TaxonKit 注释。", ("候选输入", "DIAMOND", "TaxonKit / MEGAN", "补充报告")),
+    }
+    icon, title, description, steps = presentation[workflow]
+    flow = "".join(f"<span class='flow-step'>{step}</span><span class='flow-arrow'>→</span>" for step in steps[:-1]) + f"<span class='flow-step'>{steps[-1]}</span>"
+    st.markdown(
+        f"<div class='workflow-brief'><div class='workflow-brief-top'><div class='workflow-icon'>{icon}</div><div><h3>{title}</h3><p>{description}</p></div></div><div class='flow-strip'>{flow}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def show_adapter_evidence(clean_root: Path | None) -> None:
@@ -527,15 +575,20 @@ def taxon_scope_ui() -> tuple[str, str]:
 st.set_page_config(page_title="Virome Contig Studio", page_icon="🧬", layout="wide")
 st.markdown(
     """<style>
-    .block-container{max-width:1420px;padding-top:1.6rem;padding-bottom:3rem}
-    [data-testid='stAppViewContainer']{background:#f5f8fb;color:#172b3a}
-    [data-testid='stSidebar']{background:#102a43}
-    [data-testid='stSidebar'] *{color:#edf6f7}
-    h1{color:#0b3954!important;letter-spacing:-.03em}.hero{background:linear-gradient(120deg,#0b3954,#146b7a);border-radius:18px;padding:24px 28px;color:#fff;margin-bottom:20px}.hero h2{color:#fff;margin:0 0 6px 0}.hero p{margin:0;color:#d8f0ee}.section-title{font-size:1.15rem;font-weight:700;color:#0b3954;margin:1.35rem 0 .55rem}.task-note{padding:.4rem 0 .6rem;color:#466375}.status-card{background:#fff;border:1px solid #d9e6ec;border-radius:12px;padding:12px 14px}.stButton>button[kind='primary']{background:#0f897f;border-color:#0f897f}.stButton>button[kind='primary']:hover{background:#0a7069;border-color:#0a7069}.stRadio>div{gap:.35rem}.stRadio label{padding:.22rem .35rem}.stNumberInput label,.stTextInput label{font-weight:600}
+    :root{--ink:#102a43;--muted:#5d7183;--line:#d9e5ec;--canvas:#f4f7fb;--teal:#117a7a;--mint:#dff5ef;--navy:#0b263d;--danger:#bd3d4d}
+    .block-container{max-width:1480px;padding-top:1.15rem;padding-bottom:3.4rem}
+    [data-testid='stAppViewContainer']{background:var(--canvas);color:var(--ink)}
+    [data-testid='stSidebar']{background:linear-gradient(180deg,#0b263d 0%,#123d59 100%);border-right:1px solid #214b65}
+    [data-testid='stSidebar'] *{color:#eef7fb}
+    [data-testid='stSidebar'] [data-testid='stRadio'] label{border-radius:9px;padding:.5rem .6rem;margin:.14rem 0}
+    [data-testid='stSidebar'] [data-testid='stRadio'] label:hover{background:rgba(255,255,255,.09)}
+    h1,h2,h3{color:var(--ink)!important;letter-spacing:-.025em}.hero{background:radial-gradient(circle at 88% 12%,rgba(76,207,195,.25),transparent 30%),linear-gradient(118deg,#08263e,#0d5967 58%,#117a7a);border-radius:20px;padding:27px 30px;color:#fff;margin-bottom:18px;box-shadow:0 16px 32px rgba(10,47,67,.18)}.hero-grid{display:flex;align-items:center;justify-content:space-between;gap:22px}.hero h2{color:#fff!important;margin:5px 0 7px;font-size:2rem}.hero p{margin:0;color:#d6f0f1;max-width:760px}.eyebrow,.version-badge{display:inline-block;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700}.eyebrow{color:#9ce5dc}.version-badge{margin-left:9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);padding:4px 8px;border-radius:99px;color:#fff;vertical-align:middle}.hero-stats{display:flex;gap:10px;flex-wrap:wrap}.hero-stat{min-width:86px;background:rgba(6,29,47,.3);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:9px 12px}.hero-stat b{display:block;font-size:1rem;color:#fff}.hero-stat span{display:block;font-size:.72rem;color:#c7e6ea;margin-top:2px}
+    .workflow-brief{background:#fff;border:1px solid var(--line);border-radius:16px;padding:17px 19px;margin:12px 0 19px;box-shadow:0 4px 14px rgba(20,52,70,.045)}.workflow-brief-top{display:flex;gap:13px;align-items:flex-start}.workflow-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:#e5f4f2;font-size:1.18rem}.workflow-brief h3{margin:0;font-size:1.05rem}.workflow-brief p{margin:4px 0 0;color:var(--muted);font-size:.91rem}.flow-strip{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:14px}.flow-step{font-size:.76rem;font-weight:650;color:#315166;background:#eef4f7;border:1px solid #dae6eb;border-radius:99px;padding:5px 9px}.flow-arrow{color:#91a7b4;font-size:.85rem}
+    .section-title{font-size:1.14rem;font-weight:750;color:var(--ink);margin:1.45rem 0 .68rem}.task-note{padding:.4rem 0 .6rem;color:var(--muted)}.status-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}.stButton>button[kind='primary']{background:var(--teal);border-color:var(--teal);box-shadow:0 3px 9px rgba(17,122,122,.18)}.stButton>button[kind='primary']:hover{background:#0c6565;border-color:#0c6565}.stButton>button{border-radius:9px}.stRadio>div{gap:.35rem}.stRadio label{padding:.22rem .35rem}.stNumberInput label,.stTextInput label{font-weight:650}.stTabs [data-baseweb='tab-list']{gap:6px;border-bottom:1px solid var(--line)}.stTabs [data-baseweb='tab']{height:38px;border-radius:8px 8px 0 0;padding:0 13px;color:#526a7a;font-weight:650}.stTabs [aria-selected='true']{background:#e4f4f2;color:#0d6768}.stExpander{background:#fff;border:1px solid var(--line)!important;border-radius:11px!important}.stMetric{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 11px}.stMetric label{color:#607787!important;font-size:.78rem!important}.stMetric [data-testid='stMetricValue']{color:var(--ink);font-size:1.35rem}.stDataFrame{border:1px solid var(--line);border-radius:11px;overflow:hidden}
     </style>""",
     unsafe_allow_html=True,
 )
-st.markdown("""<div class='hero'><h2>🧬 Virome Contig Studio</h2><p>从原始测序数据到病毒多样性解读与 DIAMOND 精细注释的中文科研工作台。</p></div>""", unsafe_allow_html=True)
+st.markdown("""<div class='hero'><div class='hero-grid'><div><span class='eyebrow'>Research workflow control room</span><h2>🧬 Virome Contig Studio <span class='version-badge'>v3.0.0</span></h2><p>从原始测序数据到病毒发现、分类注释与结果判读的可追溯科研工作台。</p></div><div class='hero-stats'><div class='hero-stat'><b>4</b><span>分析工作流</span></div><div class='hero-stat'><b>5</b><span>任务状态视图</span></div><div class='hero-stat'><b>1</b><span>可追溯运行链</span></div></div></div></div>""", unsafe_allow_html=True)
 
 if not all(script.is_file() for script in [PIPELINE_SCRIPT, VIRAL_REPORT_SCRIPT, VIROME_CATALOGUE_SCRIPT, FINE_ANNOTATION_SCRIPT, VIROME_DIAGNOSTIC_SCRIPT]):
     st.error("未找到必需脚本。请重新同步完整的 contig_pipeline 软件目录。")
@@ -595,15 +648,7 @@ if task == "virome_catalogue":
     if operation == VIROME_DIAMOND_OPERATION:
         task = "fine_annotation"
 
-st.markdown(f"<div class='section-title'>{chosen}</div>", unsafe_allow_html=True)
-task_copy = {
-    "qc_only": "将双端 rawdata 进行 fastp 质控，生成标准化 cleandata。",
-    "assembly_only": "从已有 cleandata 启动 PE 或 SE MEGAHIT 拼接。",
-    "full": "顺序执行 fastp 质控、MEGAHIT 拼接与 contig 检查。",
-    "virome_catalogue": "以 geNomad、VirSorter2 和 DIAMOND-NR-virus 建立全局潜在病毒序列池；随后进行完整 NR 分类、全局 CheckV、ICTV 精细注释、样本分发与 reads 定量。",
-    "fine_annotation": "对 CheckV 默认候选或自定义候选 contigs，追加 NR DIAMOND、MEGAN RMA6 和 TaxonKit LCA 注释。",
-}
-st.markdown(f"<div class='task-note'>{task_copy[task]}</div>", unsafe_allow_html=True)
+show_workflow_overview(task)
 show_selected_task_for_workflow(task)
 
 layout_labels = {"每个样本一个子文件夹": "sample_subdirs", "所有 FASTQ 位于同一文件夹": "flat"}
