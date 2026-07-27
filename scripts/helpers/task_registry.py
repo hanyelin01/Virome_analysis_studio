@@ -160,7 +160,7 @@ def _workflow_from_parameters(values: dict[str, str]) -> tuple[str, str]:
         "assembly_only": ("assembly_only", "② MEGAHIT 拼接"),
         "full": ("full", "③ 完整拼接流程"),
         "viral_report": ("viral_report", "旧版病毒报告"),
-        "virome_catalogue_v2": ("virome_catalogue", "④ 全局病毒发现、分类与精细注释"),
+        "virome_catalogue_v2": ("virome_catalogue", "④ 病毒发现注释"),
         "fine_annotation": ("fine_annotation", "⑤ 独立 DIAMOND 精细注释"),
     }
     return mapping.get(task, (task, f"历史任务：{task}"))

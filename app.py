@@ -507,10 +507,10 @@ TASKS = {
     "① 原始数据质控": "qc_only",
     "② MEGAHIT 拼接": "assembly_only",
     "③ 完整拼接流程": "full",
-    "④ 全局病毒发现、分类与精细注释": "virome_catalogue",
+    "④ 病毒发现注释": "virome_catalogue",
     "⑤ 任务中心": "task_center",
 }
-VIROME_MAIN_OPERATION = "全局病毒发现、分类与精细注释（v2）"
+VIROME_MAIN_OPERATION = "病毒发现注释（v2 全流程）"
 VIROME_DIAMOND_OPERATION = "对已有候选进行独立 DIAMOND 精细注释"
 
 
@@ -521,9 +521,9 @@ def open_task_from_center(record: dict[str, object]) -> None:
         "qc_only": "① 原始数据质控",
         "assembly_only": "② MEGAHIT 拼接",
         "full": "③ 完整拼接流程",
-        "virome_catalogue": "④ 全局病毒发现、分类与精细注释",
-        "viral_report": "④ 全局病毒发现、分类与精细注释",
-        "fine_annotation": "④ 全局病毒发现、分类与精细注释",
+        "virome_catalogue": "④ 病毒发现注释",
+        "viral_report": "④ 病毒发现注释",
+        "fine_annotation": "④ 病毒发现注释",
     }.get(workflow, "⑤ 任务中心")
     st.session_state["selected_task_id"] = record["task_id"]
     st.session_state["workflow_navigation"] = target
