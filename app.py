@@ -356,7 +356,7 @@ def show_task_detail(record: dict[str, object]) -> None:
 
 
 def show_task_center() -> None:
-    st.markdown("<div class='section-title'>任务中心</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>任务历史中心</div>", unsafe_allow_html=True)
     scan_key = "task_history_auto_discovery_complete"
     force_scan = st.button("刷新任务状态与历史记录", use_container_width=True, key="refresh_tasks")
     if ALLOWED_ROOTS and (force_scan or not st.session_state.get(scan_key)):
@@ -366,7 +366,7 @@ def show_task_center() -> None:
         message = f"已扫描 {locations} 个含运行记录的输出位置；新增登记 {imported} 个任务。"
         st.caption(message + (" 扫描达到安全上限，未继续遍历更深目录。" if truncated else ""))
     elif not ALLOWED_ROOTS:
-        st.info("配置 ALLOWED_DATA_ROOTS 后，任务中心会自动发现其中的历史运行记录。")
+        st.info("配置 ALLOWED_DATA_ROOTS 后，任务历史中心会自动发现其中的历史运行记录。")
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
     categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
     tabs = st.tabs([item[0] for item in categories])
@@ -508,7 +508,7 @@ TASKS = {
     "② MEGAHIT 拼接": "assembly_only",
     "③ 完整拼接流程": "full",
     "④ 病毒发现注释": "virome_catalogue",
-    "⑤ 任务中心": "task_center",
+    "⑤ 任务历史中心": "task_center",
 }
 VIROME_MAIN_OPERATION = "病毒发现注释（v2 全流程）"
 VIROME_DIAMOND_OPERATION = "对已有候选进行独立 DIAMOND 精细注释"
@@ -524,7 +524,7 @@ def open_task_from_center(record: dict[str, object]) -> None:
         "virome_catalogue": "④ 病毒发现注释",
         "viral_report": "④ 病毒发现注释",
         "fine_annotation": "④ 病毒发现注释",
-    }.get(workflow, "⑤ 任务中心")
+    }.get(workflow, "⑤ 任务历史中心")
     st.session_state["selected_task_id"] = record["task_id"]
     st.session_state["workflow_navigation"] = target
     if workflow in {"fine_annotation"}:
@@ -791,7 +791,7 @@ try:
                     with task_registry.connect() as connection:
                         connection.execute("UPDATE tasks SET pid=? WHERE task_id=?", (pid, task_id))
                     st.session_state["selected_task_id"] = task_id
-                    st.success(f"任务已提交至 Linux 后台（启动 PID：{pid}）。已登记到任务中心，可随时切换页面后回访。")
+                    st.success(f"任务已提交至 Linux 后台（启动 PID：{pid}）。已登记到任务历史中心，可随时切换页面后回访。")
         with c_refresh:
             st.button("刷新运行中心", use_container_width=True)
 except ValueError as error:
