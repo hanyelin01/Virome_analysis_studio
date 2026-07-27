@@ -300,21 +300,16 @@ def show_task_detail(record: dict[str, object]) -> None:
 
 def show_task_center() -> None:
     st.markdown("<div class='section-title'>任务中心</div>", unsafe_allow_html=True)
-    import_col, refresh_col = st.columns([3, 1])
-    with import_col:
-        history_path = st.text_input("导入既有历史任务（输出目录）", placeholder="/data/project/virome_catalogue", key="history_output_dir", help="仅扫描该目录下 .contig_pipeline/runs；不会读取原始测序数据。")
-        if st.button("导入该目录的历史任务", key="import_history"):
-            try:
-                root = validate_path(history_path, "历史输出目录", exists=True)
-                count = task_registry.import_history(root)
-                st.success(f"已导入 {count} 条此前未登记的任务。")
-            except ValueError as error:
-                st.error(str(error))
-    with refresh_col:
-        st.write("")
-        st.write("")
-        if st.button("刷新任务状态", use_container_width=True, key="refresh_tasks"):
-            st.rerun()
+    scan_key = "task_history_auto_discovery_complete"
+    force_scan = st.button("刷新任务状态与历史记录", use_container_width=True, key="refresh_tasks")
+    if ALLOWED_ROOTS and (force_scan or not st.session_state.get(scan_key)):
+        with st.spinner("正在从已配置的数据目录发现历史任务（仅读取目录名、状态与日志元数据）…"):
+            imported, locations, truncated = task_registry.discover_history(ALLOWED_ROOTS)
+        st.session_state[scan_key] = True
+        message = f"已扫描 {locations} 个含运行记录的输出位置；新增登记 {imported} 个任务。"
+        st.caption(message + (" 扫描达到安全上限，未继续遍历更深目录。" if truncated else ""))
+    elif not ALLOWED_ROOTS:
+        st.info("配置 ALLOWED_DATA_ROOTS 后，任务中心会自动发现其中的历史运行记录。")
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
     categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
     tabs = st.tabs([item[0] for item in categories])

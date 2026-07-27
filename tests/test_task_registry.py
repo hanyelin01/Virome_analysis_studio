@@ -36,3 +36,17 @@ class TaskRegistryTest(unittest.TestCase):
             self.assertEqual(task_registry.import_history(tmp_path / "output", database), 1)
             self.assertEqual(task_registry.import_history(tmp_path / "output", database), 0)
             self.assertEqual(task_registry.refresh_tasks(database)[0]["workflow"], "virome_catalogue")
+
+    def test_discovery_finds_history_without_an_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp_path = Path(temporary)
+            database = tmp_path / "registry.sqlite3"
+            run = tmp_path / "projects" / "batch" / "report" / ".contig_pipeline" / "runs" / "old"
+            run.mkdir(parents=True)
+            (run / "parameters.env").write_text("TASK=full\n", encoding="utf-8")
+            (run / "status").write_text("FAILED\n", encoding="utf-8")
+
+            imported, locations, truncated = task_registry.discover_history([tmp_path / "projects"], database)
+
+            self.assertEqual((imported, locations, truncated), (1, 1, False))
+            self.assertEqual(task_registry.refresh_tasks(database)[0]["status"], "FAILED")

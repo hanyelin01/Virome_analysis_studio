@@ -183,3 +183,41 @@ def import_history(state_base: Path, database: Path | None = None) -> int:
             )
             imported += result.rowcount
     return imported
+
+
+def discover_history(
+    roots: list[Path],
+    database: Path | None = None,
+    *,
+    max_depth: int = 8,
+    max_directories: int = 25_000,
+) -> tuple[int, int, bool]:
+    """Find known run directories below approved data roots.
+
+    Only directory names are traversed; raw FASTQ/FASTA files are never read.
+    Limits keep an unusually large data root from delaying the web interface.
+    Returns (new_tasks, output_locations, was_truncated).
+    """
+    imported = locations = visited = 0
+    truncated = False
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for current_text, directories, _ in os.walk(root, topdown=True, followlinks=False):
+            current = Path(current_text)
+            visited += 1
+            if visited > max_directories:
+                return imported, locations, True
+            try:
+                depth = len(current.relative_to(root).parts)
+            except ValueError:
+                directories[:] = []
+                continue
+            if current.name == ".contig_pipeline":
+                if (current / "runs").is_dir():
+                    imported += import_history(current.parent, database)
+                    locations += 1
+                directories[:] = []
+            elif depth >= max_depth:
+                directories[:] = []
+    return imported, locations, truncated
