@@ -7,7 +7,9 @@ import json
 import shlex
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -370,17 +372,44 @@ def show_task_center() -> None:
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
     categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
     tabs = st.tabs([item[0] for item in categories])
+
+    def date_group(record: dict[str, object]) -> str:
+        try:
+            submitted = datetime.fromisoformat(str(record["submitted_at"]).replace("Z", "+00:00"))
+            local_date = submitted.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        except (TypeError, ValueError):
+            return "日期未知"
+        if local_date == today:
+            return f"今天 · {local_date.isoformat()}"
+        if (today - local_date).days == 1:
+            return f"昨天 · {local_date.isoformat()}"
+        return local_date.isoformat()
+
+    def show_record(record: dict[str, object], category: str) -> None:
+        left, middle, right = st.columns([4, 3, 1])
+        left.write(f"**{task_display_name(record)}**")
+        run_name = Path(str(record["run_dir"])).name if record.get("run_dir") else "等待建立运行目录"
+        middle.caption(f"{record['workflow_label']} · {STATUS_LABELS.get(record['status'], record['status'])} · {run_name}")
+        right.button("进入工作流", key=f"open_task_{category}_{record['task_id']}", use_container_width=True,
+                     on_click=open_task_from_center, args=(record,))
+
     for tab, (category, subset) in zip(tabs, categories):
         with tab:
             if not subset:
                 st.caption("暂无任务记录。")
-            for record in subset[:40]:
-                left, middle, right = st.columns([4, 3, 1])
-                left.write(f"**{task_display_name(record)}**")
-                run_name = Path(str(record["run_dir"])).name if record.get("run_dir") else "等待建立运行目录"
-                middle.caption(f"{record['workflow_label']} · {STATUS_LABELS.get(record['status'], record['status'])} · {run_name}")
-                right.button("进入工作流", key=f"open_task_{category}_{record['task_id']}", use_container_width=True,
-                             on_click=open_task_from_center, args=(record,))
+                continue
+            if category == "运行中":
+                for record in subset[:100]:
+                    show_record(record, category)
+                continue
+            grouped: dict[str, list[dict[str, object]]] = {}
+            for record in subset[:200]:
+                grouped.setdefault(date_group(record), []).append(record)
+            for group_name, day_records in grouped.items():
+                with st.expander(f"{group_name}（{len(day_records)} 条任务）", expanded=group_name.startswith("今天")):
+                    for record in day_records:
+                        show_record(record, category)
 
 
 def show_selected_task_for_workflow(workflow: str) -> None:
