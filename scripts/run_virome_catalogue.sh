@@ -86,7 +86,9 @@ else
 fi
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Virome catalogue stopped; log: $LOG"; exit "$rc"; }
+on_cancel() { printf 'CANCELLED\n' > "$RUN_DIR/status"; echo "[CANCELLED] Virome catalogue terminated by user; log: $LOG"; exit 143; }
 trap on_error ERR
+trap on_cancel TERM INT
 
 MEGAN_DEFERRED=0
 launch_megan_background() {

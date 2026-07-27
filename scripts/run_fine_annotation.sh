@@ -70,7 +70,9 @@ TASK_REGISTRY_ID=${CONTIG_PIPELINE_TASK_ID:-}
 mkdir -p "$RUN_DIR"; exec 9>"$OUTPUT_DIR/.contig_pipeline/.pipeline.lock"; flock -n 9 || die 75 "Another pipeline task is already running for: $OUTPUT_DIR"
 exec > >(tee -a "$LOG") 2>&1; printf 'RUNNING\n' > "$RUN_DIR/status"
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Fine annotation stopped; log: $LOG"; exit "$rc"; }
+on_cancel() { printf 'CANCELLED\n' > "$RUN_DIR/status"; echo "[CANCELLED] Fine annotation terminated by user; log: $LOG"; exit 143; }
 trap on_error ERR
+trap on_cancel TERM INT
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 
 if [[ $SOURCE == custom ]]; then

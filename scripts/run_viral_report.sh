@@ -72,7 +72,9 @@ RESUME=$RESUME
 EOF
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Viral report stopped; log: $LOG"; exit "$rc"; }
+on_cancel() { printf 'CANCELLED\n' > "$RUN_DIR/status"; echo "[CANCELLED] Viral report terminated by user; log: $LOG"; exit 143; }
 trap on_error ERR
+trap on_cancel TERM INT
 
 run_step preflight bash "$SCRIPT_DIR/00_preflight.sh" --task assembly_only --cleandata-dir "$CLEAN_DIR" --clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST"
 prepare=(bash "$SCRIPT_DIR/04_prepare_viral_contigs.sh" --assembly-dir "$ASSEMBLY_DIR" --manifest "$MANIFEST" --output-dir "$OUTPUT_DIR" --min-contig-length "$MIN_LENGTH"); (( RESUME )) && prepare+=(--resume); run_step prepare_contigs "${prepare[@]}"

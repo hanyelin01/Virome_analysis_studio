@@ -185,7 +185,7 @@ def tail(path: Path, limit: int = 24_000) -> str:
     return ("…\n" if size > limit else "") + text
 
 
-STATUS_LABELS = {"STARTING": "等待建立运行目录", "RUNNING": "运行中", "SUCCESS": "已完成", "FAILED": "失败"}
+STATUS_LABELS = {"STARTING": "等待建立运行目录", "RUNNING": "运行中", "SUCCESS": "已完成", "FAILED": "失败", "CANCELLED": "已终止"}
 
 MODULES = {
     "preflight": ("输入与样本清单检查", "检查路径、FASTQ/contig 配对和本次样本 manifest。"),
@@ -330,6 +330,17 @@ def show_task_detail(record: dict[str, object]) -> None:
         st.caption(f"运行目录：{record['run_dir']} ｜ 当前/最后阶段：{record.get('current_step') or '尚未写入阶段'}")
     else:
         st.caption("后台进程已提交，正在等待后端创建运行目录。")
+    if status in {"STARTING", "RUNNING"}:
+        with st.expander("终止运行中的任务", expanded=False):
+            st.warning("此操作会向该任务及其子进程发送安全终止请求。已有结果文件会保留，但本次任务将标记为“已终止”，不能作为完整结果使用。")
+            confirmed = st.checkbox("我已确认要终止这项运行中的任务", key=f"terminate_confirm_{record['task_id']}")
+            phrase = st.text_input("请输入“终止”以确认", key=f"terminate_phrase_{record['task_id']}")
+            if st.button("确认终止任务", type="primary", disabled=not (confirmed and phrase.strip() == "终止"), key=f"terminate_task_{record['task_id']}", use_container_width=True):
+                success, message = task_registry.terminate_task(str(record["task_id"]))
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
     general_logs = task_log_paths(record)
     if general_logs:
         selected = st.selectbox("总运行记录", general_logs, format_func=lambda item: item.name, key=f"general_log_{record['task_id']}")
@@ -370,7 +381,7 @@ def show_task_center() -> None:
     elif not ALLOWED_ROOTS:
         st.info("配置 ALLOWED_DATA_ROOTS 后，任务历史中心会自动发现其中的历史运行记录。")
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
-    categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
+    categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"]), ("已终止", [r for r in records if r["status"] == "CANCELLED"])]
     tabs = st.tabs([item[0] for item in categories])
 
     def date_group(record: dict[str, object]) -> str:

@@ -56,7 +56,9 @@ cp -- "$ADAPTER_SEQUENCE_REFERENCE" "$RUN_DIR/adapter_sequence_reference.snapsho
 sha256sum "$RUN_DIR/adapter_sequence_reference.snapshot.tsv" > "$RUN_DIR/adapter_sequence_reference.snapshot.sha256"
 run_step() { local label=$1; shift; echo "[STEP] $label"; "$@" 2>&1 | tee -a "$RUN_DIR/${label}.log"; }
 on_error() { local rc=$?; printf 'FAILED\n' > "$RUN_DIR/status"; echo "[ERROR] Pipeline stopped; log: $LOG"; exit "$rc"; }
+on_cancel() { printf 'CANCELLED\n' > "$RUN_DIR/status"; echo "[CANCELLED] Pipeline terminated by user; log: $LOG"; exit 143; }
 trap on_error ERR
+trap on_cancel TERM INT
 preflight=(bash "$SCRIPT_DIR/00_preflight.sh" --task "$TASK" --cleandata-dir "$CLEAN_DIR" --manifest "$MANIFEST")
 [[ $TASK == qc_only || $TASK == full ]] && preflight+=(--rawdata-dir "$RAW_DIR" --raw-layout "$RAW_LAYOUT")
 [[ $TASK == assembly_only || $TASK == full ]] && preflight+=(--clean-layout "$CLEAN_LAYOUT" --read-type "$READ_TYPE" --assembly-dir "$ASSEMBLY_DIR")

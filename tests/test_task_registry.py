@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import subprocess
 from pathlib import Path
 
 from scripts.helpers import task_registry
@@ -39,6 +40,21 @@ class TaskRegistryTest(unittest.TestCase):
             task_registry.suggested_display_name("v2", output, "2026-07-27T00:00:00+00:00"),
             "2026BatCN_NHZY_Yunnan · 04.Viral_report · 首次运行",
         )
+
+    def test_termination_only_targets_registered_process_group(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp_path = Path(temporary)
+            database = tmp_path / "registry.sqlite3"
+            process = subprocess.Popen(["sleep", "30"], start_new_session=True)
+            try:
+                task_id = task_registry.register_submission("qc_only", "质控", tmp_path / "output", ["sleep", "30"], process.pid, database)
+                success, _ = task_registry.terminate_task(task_id, database)
+                self.assertTrue(success)
+                process.wait(timeout=5)
+                self.assertEqual(task_registry.refresh_tasks(database)[0]["status"], "CANCELLED")
+            finally:
+                if process.poll() is None:
+                    process.kill()
 
     def test_import_history_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

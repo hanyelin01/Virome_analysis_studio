@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 
-RUN_STATUSES = {"RUNNING", "SUCCESS", "FAILED"}
+RUN_STATUSES = {"RUNNING", "SUCCESS", "FAILED", "CANCELLED"}
 
 
 def default_registry_path() -> Path:
@@ -55,6 +56,8 @@ def connect(database: Path | None = None) -> sqlite3.Connection:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)")}
     if "display_name" not in columns:
         connection.execute("ALTER TABLE tasks ADD COLUMN display_name TEXT")
+    if "cancel_requested_at" not in columns:
+        connection.execute("ALTER TABLE tasks ADD COLUMN cancel_requested_at TEXT")
     return connection
 
 
@@ -123,6 +126,42 @@ def _pid_is_running(pid: int | None) -> bool:
     return True
 
 
+def terminate_task(task_id: str, database: Path | None = None) -> tuple[bool, str]:
+    """Gracefully terminate only the process group created for this registered task."""
+    with connect(database) as connection:
+        row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        if row is None:
+            return False, "未找到该任务登记记录。"
+        record = dict(row)
+        if record["status"] not in {"STARTING", "RUNNING"}:
+            return False, "该任务已不处于运行状态，未发送终止信号。"
+        pid = record["pid"]
+        if not _pid_is_running(pid):
+            return False, "登记的后台进程已不存在；请刷新任务状态。"
+        try:
+            command = json.loads(record["command_json"])
+            expected_script = Path(command[0]).name if isinstance(command, list) and command else ""
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", errors="replace")
+            if not expected_script or expected_script not in cmdline:
+                return False, "进程命令与任务登记不匹配，为避免误杀未执行终止。"
+            if os.getsid(pid) != pid or os.getpgid(pid) != pid:
+                return False, "该进程不是本软件创建的独立会话，为避免误杀未执行终止。"
+            os.killpg(pid, signal.SIGTERM)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            return False, f"无法安全终止该任务：{error}"
+        # A cancellation before the runner creates RUN_DIR has no status file
+        # to update; record it here. Otherwise the shell trap writes CANCELLED.
+        requested_at = now()
+        if not record["run_dir"]:
+            connection.execute(
+                "UPDATE tasks SET status='CANCELLED', cancel_requested_at=?, completed_at=?, last_seen_at=? WHERE task_id=?",
+                (requested_at, requested_at, requested_at, task_id),
+            )
+        else:
+            connection.execute("UPDATE tasks SET cancel_requested_at=?, last_seen_at=? WHERE task_id=?", (requested_at, requested_at, task_id))
+    return True, "已发送安全终止请求；当前步骤会尽快停止并记录为“已终止”。"
+
+
 def refresh_tasks(database: Path | None = None) -> list[dict[str, Any]]:
     with connect(database) as connection:
         records = [dict(row) for row in connection.execute("SELECT * FROM tasks ORDER BY submitted_at DESC")]
@@ -130,7 +169,9 @@ def refresh_tasks(database: Path | None = None) -> list[dict[str, Any]]:
             run_dir = Path(record["run_dir"]) if record["run_dir"] else _find_run(Path(record["state_base"]), record["task_id"])
             if run_dir and run_dir.is_dir():
                 status, step = status_for_run(run_dir)
-                completed = now() if status in {"SUCCESS", "FAILED"} and not record["completed_at"] else record["completed_at"]
+                if status == "RUNNING" and record.get("cancel_requested_at") and not _pid_is_running(record["pid"]):
+                    status = "CANCELLED"
+                completed = now() if status in {"SUCCESS", "FAILED", "CANCELLED"} and not record["completed_at"] else record["completed_at"]
                 connection.execute(
                     "UPDATE tasks SET run_dir=?, status=?, current_step=?, completed_at=?, last_seen_at=? WHERE task_id=?",
                     (str(run_dir), status, step, completed, now(), record["task_id"]),
