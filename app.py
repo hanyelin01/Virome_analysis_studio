@@ -751,20 +751,33 @@ try:
     if command is not None:
         st.markdown("<div class='section-title'>执行确认</div>", unsafe_allow_html=True)
         workflow_label = chosen if task != "fine_annotation" else f"{chosen} · 独立 DIAMOND 精细注释"
-        automatic_name = task_registry.suggested_display_name(workflow_label, state_base, task_registry.now())
-        task_name = st.text_input(
-            "任务名称（可选）",
-            placeholder=automatic_name,
-            help="建议填写项目/批次用途，例如“云南蝙蝠第一批—参数优化重跑”。留空时系统使用上方示例格式自动命名。",
-            key=f"new_task_name_{task}",
-        )
+        inferred_batch = state_base.parent.name or state_base.name
+        inferred_task = state_base.name or str(state_base)
+        st.caption("任务名称按“样本批次 · 执行任务 · 运行性质”组合；前两项默认按输出路径的倒数两层识别。")
+        n1, n2, n3 = st.columns(3)
+        with n1:
+            batch_choice = st.selectbox("样本批次", [inferred_batch, "手动填写…"], key=f"task_batch_choice_{task}")
+            batch_name = st.text_input("自定义样本批次", key=f"task_batch_custom_{task}") if batch_choice == "手动填写…" else batch_choice
+        with n2:
+            task_choice = st.selectbox("执行任务", [inferred_task, "手动填写…"], key=f"task_operation_choice_{task}")
+            operation_name = st.text_input("自定义执行任务", key=f"task_operation_custom_{task}") if task_choice == "手动填写…" else task_choice
+        with n3:
+            run_kind = st.selectbox("运行性质", ["首次运行", "优化重跑"], key=f"task_run_kind_{task}")
+        if not batch_name.strip() or not operation_name.strip():
+            raise ValueError("手动命名时，“样本批次”和“执行任务”不能为空。")
+        name_parts = [batch_name.strip(), operation_name.strip(), run_kind]
+        extra_note = st.text_input("补充说明（可选）", placeholder="例如：提高 DIAMOND block size", key=f"task_note_{task}")
+        if extra_note.strip():
+            name_parts.append(extra_note.strip())
+        task_name = " · ".join(name_parts)
+        st.info(f"任务名称预览：{task_name}")
         st.code(" \\\n  ".join(shlex.quote(part) for part in command), language="bash")
         c_run, c_refresh = st.columns([1, 1])
         with c_run:
             if st.button("提交后台任务", type="primary", use_container_width=True):
                 task_id = task_registry.register_submission(
                     task, workflow_label, state_base, command, 0,
-                    display_name=task_name or automatic_name,
+                    display_name=task_name,
                 )
                 try:
                     pid = launch(command, task_id)

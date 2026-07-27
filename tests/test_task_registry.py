@@ -33,6 +33,13 @@ class TaskRegistryTest(unittest.TestCase):
             task_registry.rename_task(task_id, "批次 A 重跑", database)
             self.assertEqual(task_registry.refresh_tasks(database)[0]["display_name"], "批次 A 重跑")
 
+    def test_suggested_name_uses_batch_and_output_directories(self) -> None:
+        output = Path("/home/hanyl/Projects/0WulabNGSData/2026BatCN_NHZY_Yunnan/04.Viral_report")
+        self.assertEqual(
+            task_registry.suggested_display_name("v2", output, "2026-07-27T00:00:00+00:00"),
+            "2026BatCN_NHZY_Yunnan · 04.Viral_report · 首次运行",
+        )
+
     def test_import_history_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             tmp_path = Path(temporary)

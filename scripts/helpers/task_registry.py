@@ -167,10 +167,12 @@ def _workflow_from_parameters(values: dict[str, str]) -> tuple[str, str]:
 
 
 def suggested_display_name(workflow_label: str, state_base: Path, submitted_at: str, run_dir: Path | None = None) -> str:
-    """Stable, readable fallback title for new and imported tasks."""
-    location = state_base.name or str(state_base)
-    suffix = run_dir.name if run_dir else submitted_at.replace("T", " ").split("+")[0]
-    return f"{workflow_label} · {location} · {suffix}"
+    """Stable fallback title following batch-directory/output-directory convention."""
+    task_name = state_base.name or str(state_base)
+    batch_name = state_base.parent.name or task_name
+    if run_dir:
+        return f"{batch_name} · {task_name} · 历史运行 · {run_dir.name}"
+    return f"{batch_name} · {task_name} · 首次运行"
 
 
 def rename_task(task_id: str, display_name: str, database: Path | None = None) -> None:
