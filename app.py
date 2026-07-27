@@ -185,23 +185,40 @@ def tail(path: Path, limit: int = 24_000) -> str:
 
 STATUS_LABELS = {"STARTING": "等待建立运行目录", "RUNNING": "运行中", "SUCCESS": "已完成", "FAILED": "失败"}
 
-MODULES = [
-    ("preflight", "输入与样本清单检查", "检查路径、FASTQ/contig 配对和本次样本 manifest。"),
-    ("fastp", "fastp 质控与去接头", "生成 cleandata、质控 HTML/JSON 与接头证据。"),
-    ("megahit", "MEGAHIT 拼接", "从 clean reads 进行样本级 de novo 拼接。"),
-    ("prepare_contigs", "contig 准备", "仅按本次 manifest 合并 contig，并应用长度阈值。"),
-    ("genomad", "geNomad 病毒发现", "基于 geNomad 识别潜在病毒 contig。"),
-    ("virsorter2", "VirSorter2 病毒发现", "以 VirSorter2 补充病毒候选识别。"),
-    ("diamond_virus_discovery", "DIAMOND 病毒发现", "以 NR 病毒范围的 DIAMOND 命中补充候选。"),
-    ("build_candidate_catalogue", "候选序列目录", "合并三种发现证据并构建去冗余 VC catalogue。"),
-    ("diamond_nr_taxonomy", "DIAMOND + TaxonKit 分类", "以完整 NR 进行分类比对，并生成 TaxonKit LCA。"),
-    ("diamond_megan", "DIAMOND + MEGAN 辅助文件", "生成供本地人工查看的 DAA/RMA6，不阻塞主报告。"),
-    ("resolve_viral_evidence", "病毒证据判定", "综合发现证据与 NR 分类，筛选进入质量控制的病毒片段。"),
-    ("checkv", "CheckV 质量评估", "评估病毒片段完整度与宿主污染，并保留质量摘要。"),
-    ("ictv_refinement", "ICTV 精细注释", "以本地 ICTV 参考库对已分类到科的片段进行精细比对。"),
-    ("quantify_fragments", "样本分发与丰度", "将最终片段分发回样本并使用 reads 定量。"),
-    ("report", "报告生成", "生成批次总览、单样本页面及可下载结果表。"),
-]
+MODULES = {
+    "preflight": ("输入与样本清单检查", "检查路径、FASTQ/contig 配对和本次样本 manifest。"),
+    "fastp": ("fastp 质控与去接头", "生成 cleandata、质控 HTML/JSON 与接头证据。"),
+    "megahit": ("MEGAHIT 拼接", "从 clean reads 进行样本级 de novo 拼接。"),
+    "check_contigs": ("拼接 contig 检查", "汇总每个样本的拼接数量、长度和基础统计。"),
+    "prepare_contigs": ("contig 准备", "仅按本次 manifest 合并 contig，并应用长度阈值。"),
+    "genomad": ("geNomad 病毒发现", "基于 geNomad 识别潜在病毒 contig。"),
+    "virsorter2": ("VirSorter2 病毒发现", "以 VirSorter2 补充病毒候选识别。"),
+    "diamond_virus_discovery": ("DIAMOND 病毒发现", "以 NR 病毒范围的 DIAMOND 命中补充候选。"),
+    "build_candidate_catalogue": ("候选序列目录", "合并三种发现证据并构建去冗余 VC catalogue。"),
+    "diamond_nr_taxonomy": ("DIAMOND + TaxonKit 分类", "以完整 NR 进行分类比对，并生成 TaxonKit LCA。"),
+    "diamond_taxonomy": ("DIAMOND + TaxonKit 分类", "对已有候选执行 NR 分类和 TaxonKit LCA。"),
+    "diamond_megan": ("DIAMOND + MEGAN 辅助文件", "生成供本地人工查看的 DAA/RMA6，不阻塞主报告。"),
+    "resolve_viral_evidence": ("病毒证据判定", "综合发现证据与 NR 分类，筛选进入质量控制的病毒片段。"),
+    "checkv": ("CheckV 质量评估", "评估病毒片段完整度与宿主污染，并保留质量摘要。"),
+    "select_ictv_candidates": ("ICTV 候选筛选", "提取已分类到科、适合进入 ICTV 精细注释的片段。"),
+    "ictv_refinement": ("ICTV 精细注释", "以本地 ICTV 参考库对已分类到科的片段进行精细比对。"),
+    "build_final_catalogue": ("最终病毒片段目录", "整合 CheckV、NR 与 ICTV 信息，形成 VF catalogue。"),
+    "quantify_fragments": ("样本分发与丰度", "将最终片段分发回样本并使用 reads 定量。"),
+    "votu_abundance": ("vOTU 与丰度", "旧版流程的 vOTU 聚类、样本分发和丰度计算。"),
+    "prepare_custom_input": ("自定义候选输入准备", "合并并规范化用户提供的 FASTA 候选序列。"),
+    "refresh_main_report": ("主报告刷新", "将独立注释结果回写并刷新旧版主报告。"),
+    "custom_annotation_report": ("独立注释报告", "为自定义候选生成独立的注释报告。"),
+    "report": ("报告生成", "生成批次总览、单样本页面及可下载结果表。"),
+}
+
+WORKFLOW_MODULES = {
+    "qc_only": ("preflight", "fastp"),
+    "assembly_only": ("preflight", "megahit", "check_contigs"),
+    "full": ("preflight", "fastp", "megahit", "check_contigs"),
+    "viral_report": ("preflight", "prepare_contigs", "genomad", "virsorter2", "checkv", "votu_abundance", "report"),
+    "virome_catalogue": ("preflight", "prepare_contigs", "genomad", "virsorter2", "diamond_virus_discovery", "build_candidate_catalogue", "diamond_nr_taxonomy", "diamond_megan", "resolve_viral_evidence", "checkv", "select_ictv_candidates", "ictv_refinement", "build_final_catalogue", "quantify_fragments", "report"),
+    "fine_annotation": ("prepare_custom_input", "diamond_megan", "diamond_taxonomy", "refresh_main_report", "custom_annotation_report"),
+}
 
 
 def task_is_allowed(record: dict[str, object]) -> bool:
@@ -223,10 +240,12 @@ def task_log_paths(record: dict[str, object], module: str | None = None) -> list
         candidates = [run / f"{module}.log"]
         module_terms = {
             "diamond_virus_discovery": ("02c_diamond_virus",), "diamond_nr_taxonomy": ("04_nr_annotation",),
-            "diamond_megan": ("04_nr_megan",), "ictv_refinement": ("06_ictv_refinement",),
+            "diamond_taxonomy": ("04_nr_annotation", "04_nr_taxonomy"), "diamond_megan": ("04_nr_megan",), "ictv_refinement": ("06_ictv_refinement",),
             "quantify_fragments": ("09_abundance",), "report": ("reports",), "checkv": ("05_checkv", "03_checkv"),
             "genomad": ("02_genomad",), "virsorter2": ("02b_virsorter2",),
             "prepare_contigs": ("01_prepared_contigs",), "fastp": ("fastp_report",), "megahit": ("megahit",),
+            "votu_abundance": ("04_sample_votu",), "refresh_main_report": ("reports",),
+            "custom_annotation_report": ("reports",), "check_contigs": (".contig_pipeline/reports",),
         }.get(module, ())
         for name in module_terms:
             stage = output / name
@@ -253,6 +272,7 @@ def module_parameters(run_dir: Path | None, module: str) -> str:
         "genomad": ("THREADS", "GENOMAD_DB"), "virsorter2": ("THREADS",),
         "diamond_virus_discovery": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR"),
         "diamond_nr_taxonomy": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR", "DIAMOND_NR_MAX_TARGET_SEQS"),
+        "diamond_taxonomy": ("THREADS", "BLOCK_SIZE", "INDEX_CHUNKS", "TMPDIR", "MAX_TARGET_SEQS", "TAXON_SCOPE", "TAXONLIST"),
         "diamond_megan": ("DIAMOND_THREADS", "DIAMOND_BLOCK_SIZE", "DIAMOND_INDEX_CHUNKS", "DIAMOND_TMPDIR"),
         "checkv": ("THREADS", "CHECKV_DB"), "ictv_refinement": ("DIAMOND_THREADS", "ICTV_REFERENCE_VERSION", "ICTV_REFERENCE_DMND"),
         "quantify_fragments": ("THREADS",), "report": ("GROUPS_FILE",),
@@ -260,15 +280,50 @@ def module_parameters(run_dir: Path | None, module: str) -> str:
     return "\n".join(f"{key}={values[key]}" for key in keys if values.get(key))
 
 
+def task_display_name(record: dict[str, object]) -> str:
+    stored = str(record.get("display_name") or "").strip()
+    if stored:
+        return stored
+    run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
+    return task_registry.suggested_display_name(
+        str(record["workflow_label"]), Path(str(record["state_base"])), str(record["submitted_at"]), run_dir,
+    )
+
+
+def modules_for_task(record: dict[str, object]) -> list[str]:
+    modules = list(WORKFLOW_MODULES.get(str(record["workflow"]), ()))
+    run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
+    parameters = task_registry.parse_parameters(run_dir / "parameters.env") if run_dir else {}
+    if record["workflow"] == "fine_annotation":
+        if parameters.get("SOURCE") == "checkv":
+            modules = [item for item in modules if item not in {"prepare_custom_input", "custom_annotation_report"}]
+        elif parameters.get("SOURCE") == "custom":
+            modules = [item for item in modules if item != "refresh_main_report"]
+    if run_dir and run_dir.is_dir():
+        for log in run_dir.glob("*.log"):
+            stage = log.stem
+            if stage in MODULES and stage not in modules:
+                modules.append(stage)
+    return modules
+
+
 def show_task_detail(record: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>任务详情与软件日志</div>", unsafe_allow_html=True)
     status = str(record.get("status", "STARTING"))
-    headline = f"{record['workflow_label']} · {STATUS_LABELS.get(status, status)}"
+    headline = f"{task_display_name(record)} · {STATUS_LABELS.get(status, status)}"
     if status == "RUNNING": st.warning(headline)
     elif status == "SUCCESS": st.success(headline)
     elif status == "FAILED": st.error(headline)
     else: st.info(headline)
-    st.caption(f"提交时间：{record['submitted_at']} ｜ 输出位置：{record['state_base']}")
+    st.caption(f"工作流：{record['workflow_label']} ｜ 提交时间：{record['submitted_at']} ｜ 输出位置：{record['state_base']}")
+    rename_col, save_col = st.columns([4, 1])
+    with rename_col:
+        renamed = st.text_input("任务名称", value=task_display_name(record), key=f"rename_task_{record['task_id']}")
+    with save_col:
+        st.write("")
+        if st.button("保存名称", key=f"save_task_name_{record['task_id']}", use_container_width=True):
+            task_registry.rename_task(str(record["task_id"]), renamed)
+            st.success("任务名称已保存。")
     if record.get("run_dir"):
         st.caption(f"运行目录：{record['run_dir']} ｜ 当前/最后阶段：{record.get('current_step') or '尚未写入阶段'}")
     else:
@@ -278,12 +333,14 @@ def show_task_detail(record: dict[str, object]) -> None:
         selected = st.selectbox("总运行记录", general_logs, format_func=lambda item: item.name, key=f"general_log_{record['task_id']}")
         st.code(tail(selected), language="text")
         st.download_button("下载当前日志/参数文件", selected.read_bytes(), file_name=selected.name, use_container_width=True, key=f"download_general_{record['task_id']}")
-    for module, title, explanation in MODULES:
+    st.caption("以下仅显示该工作流相关的软件阶段；状态由该次运行目录的阶段日志和输出文件判定。")
+    for module in modules_for_task(record):
+        title, explanation = MODULES[module]
         paths = task_log_paths(record, module)
         run_dir = Path(str(record["run_dir"])) if record.get("run_dir") else None
         current = record.get("current_step") == module and status == "RUNNING"
         available = bool(paths)
-        module_status = "运行中" if current else ("已产生记录" if available else "尚未执行或不适用")
+        module_status = "运行中" if current else ("已产生记录" if available else ("本次未执行或不适用" if status in {"SUCCESS", "FAILED"} else "等待执行"))
         with st.expander(f"{title} · {module_status}"):
             st.caption(explanation)
             parameters = module_parameters(run_dir, module)
@@ -319,8 +376,9 @@ def show_task_center() -> None:
                 st.caption("暂无任务记录。")
             for record in subset[:40]:
                 left, middle, right = st.columns([4, 3, 1])
-                left.write(f"**{record['workflow_label']}**")
-                middle.caption(f"{STATUS_LABELS.get(record['status'], record['status'])} · {record.get('current_step') or '等待/未记录阶段'} · {record['submitted_at']}")
+                left.write(f"**{task_display_name(record)}**")
+                run_name = Path(str(record["run_dir"])).name if record.get("run_dir") else "等待建立运行目录"
+                middle.caption(f"{record['workflow_label']} · {STATUS_LABELS.get(record['status'], record['status'])} · {run_name}")
                 right.button("进入工作流", key=f"open_task_{category}_{record['task_id']}", use_container_width=True,
                              on_click=open_task_from_center, args=(record,))
 
@@ -692,11 +750,22 @@ try:
         command.append("--resume")
     if command is not None:
         st.markdown("<div class='section-title'>执行确认</div>", unsafe_allow_html=True)
+        workflow_label = chosen if task != "fine_annotation" else f"{chosen} · 独立 DIAMOND 精细注释"
+        automatic_name = task_registry.suggested_display_name(workflow_label, state_base, task_registry.now())
+        task_name = st.text_input(
+            "任务名称（可选）",
+            placeholder=automatic_name,
+            help="建议填写项目/批次用途，例如“云南蝙蝠第一批—参数优化重跑”。留空时系统使用上方示例格式自动命名。",
+            key=f"new_task_name_{task}",
+        )
         st.code(" \\\n  ".join(shlex.quote(part) for part in command), language="bash")
         c_run, c_refresh = st.columns([1, 1])
         with c_run:
             if st.button("提交后台任务", type="primary", use_container_width=True):
-                task_id = task_registry.register_submission(task, chosen, state_base, command, 0)
+                task_id = task_registry.register_submission(
+                    task, workflow_label, state_base, command, 0,
+                    display_name=task_name or automatic_name,
+                )
                 try:
                     pid = launch(command, task_id)
                 except OSError as error:

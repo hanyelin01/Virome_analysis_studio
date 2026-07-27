@@ -24,6 +24,15 @@ class TaskRegistryTest(unittest.TestCase):
             self.assertEqual(records[0]["status"], "RUNNING")
             self.assertEqual(records[0]["current_step"], "fastp")
 
+    def test_custom_display_name_can_be_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tmp_path = Path(temporary)
+            database = tmp_path / "registry.sqlite3"
+            task_id = task_registry.register_submission("qc_only", "质控", tmp_path / "output", ["run"], 123, database, "批次 A")
+            self.assertEqual(task_registry.refresh_tasks(database)[0]["display_name"], "批次 A")
+            task_registry.rename_task(task_id, "批次 A 重跑", database)
+            self.assertEqual(task_registry.refresh_tasks(database)[0]["display_name"], "批次 A 重跑")
+
     def test_import_history_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             tmp_path = Path(temporary)

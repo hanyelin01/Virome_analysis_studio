@@ -52,6 +52,9 @@ def connect(database: Path | None = None) -> sqlite3.Connection:
         """
     )
     connection.execute("CREATE INDEX IF NOT EXISTS tasks_submitted_at ON tasks(submitted_at DESC)")
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)")}
+    if "display_name" not in columns:
+        connection.execute("ALTER TABLE tasks ADD COLUMN display_name TEXT")
     return connection
 
 
@@ -86,15 +89,16 @@ def register_submission(
     command: list[str],
     pid: int,
     database: Path | None = None,
+    display_name: str = "",
 ) -> str:
     task_id = uuid4().hex
     timestamp = now()
     with connect(database) as connection:
         connection.execute(
-            """INSERT INTO tasks(task_id, workflow, workflow_label, state_base, command_json,
+            """INSERT INTO tasks(task_id, workflow, workflow_label, display_name, state_base, command_json,
                                  submitted_at, pid, status, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'STARTING', ?)""",
-            (task_id, workflow, workflow_label, str(state_base), json.dumps(command), timestamp, pid, timestamp),
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'STARTING', ?)""",
+            (task_id, workflow, workflow_label, display_name.strip(), str(state_base), json.dumps(command), timestamp, pid, timestamp),
         )
     return task_id
 
@@ -162,6 +166,18 @@ def _workflow_from_parameters(values: dict[str, str]) -> tuple[str, str]:
     return mapping.get(task, (task, f"历史任务：{task}"))
 
 
+def suggested_display_name(workflow_label: str, state_base: Path, submitted_at: str, run_dir: Path | None = None) -> str:
+    """Stable, readable fallback title for new and imported tasks."""
+    location = state_base.name or str(state_base)
+    suffix = run_dir.name if run_dir else submitted_at.replace("T", " ").split("+")[0]
+    return f"{workflow_label} · {location} · {suffix}"
+
+
+def rename_task(task_id: str, display_name: str, database: Path | None = None) -> None:
+    with connect(database) as connection:
+        connection.execute("UPDATE tasks SET display_name=? WHERE task_id=?", (display_name.strip(), task_id))
+
+
 def import_history(state_base: Path, database: Path | None = None) -> int:
     runs = state_base / ".contig_pipeline" / "runs"
     if not runs.is_dir():
@@ -174,11 +190,12 @@ def import_history(state_base: Path, database: Path | None = None) -> int:
             workflow, label = _workflow_from_parameters(values)
             status, step = status_for_run(run_dir)
             submitted = datetime.fromtimestamp(run_dir.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+            display_name = suggested_display_name(label, state_base, submitted, run_dir)
             result = connection.execute(
-                """INSERT OR IGNORE INTO tasks(task_id, workflow, workflow_label, state_base, command_json,
+                """INSERT OR IGNORE INTO tasks(task_id, workflow, workflow_label, display_name, state_base, command_json,
                                                    submitted_at, run_dir, status, current_step, completed_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)""",
-                (task_id, workflow, label, str(state_base), submitted, str(run_dir), status, step,
+                   VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?)""",
+                (task_id, workflow, label, display_name, str(state_base), submitted, str(run_dir), status, step,
                  submitted if status in {"SUCCESS", "FAILED"} else None, now()),
             )
             imported += result.rowcount
