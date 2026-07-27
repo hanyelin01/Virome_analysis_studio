@@ -313,7 +313,7 @@ def show_task_center() -> None:
     records = [record for record in task_registry.refresh_tasks() if task_is_allowed(record)]
     categories = [("全部", records), ("运行中", [r for r in records if r["status"] in {"STARTING", "RUNNING"}]), ("失败", [r for r in records if r["status"] == "FAILED"]), ("已完成", [r for r in records if r["status"] == "SUCCESS"])]
     tabs = st.tabs([item[0] for item in categories])
-    for tab, (_, subset) in zip(tabs, categories):
+    for tab, (category, subset) in zip(tabs, categories):
         with tab:
             if not subset:
                 st.caption("暂无任务记录。")
@@ -321,7 +321,7 @@ def show_task_center() -> None:
                 left, middle, right = st.columns([4, 3, 1])
                 left.write(f"**{record['workflow_label']}**")
                 middle.caption(f"{STATUS_LABELS.get(record['status'], record['status'])} · {record.get('current_step') or '等待/未记录阶段'} · {record['submitted_at']}")
-                right.button("进入工作流", key=f"open_task_{record['task_id']}", use_container_width=True,
+                right.button("进入工作流", key=f"open_task_{category}_{record['task_id']}", use_container_width=True,
                              on_click=open_task_from_center, args=(record,))
 
 
